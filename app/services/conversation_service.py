@@ -1,46 +1,45 @@
 from app.schemas.conversation import ConversationCreate, ConversationResponse, ConversationUpdate
-from app.db import fake_db
-
+from app.models.conversation import Conversation
+from app.repositories.conversation_repository import ConversationRepository 
 class ConversationService:
+    def __init__(self,repository: ConversationRepository):
+        self.repository = repository
     
     def create(self, request: ConversationCreate) -> ConversationResponse:
         """
         Create a new conversation and return the response.
         """
-        # Simulate saving to a database by appending to the fake_db list
-        conversation = ConversationResponse(id=len(fake_db) + 1, title=request.title)
-        fake_db.append(conversation)
-        return conversation
+        conversation = Conversation(title=request.title)
+        return self.respository.create(conversation)
     
     def get_all(self):
 
-        return fake_db
+        return self.respository.get_all()
     
     def get_by_id(self,conversation_id: int)->ConversationResponse:
         """
         Retrieve a conversation by its ID.
         """
-        for conversation in fake_db:
-            if conversation.id == conversation_id:
-                return conversation
-        return ValueError("Conversation not found")
+        conversation = self.repository.get_by_id(conversation_id)
+        if conversation is None:
+            raise ValueError("Conversation not found")
+        return conversation
     
     def update(self, conversation_id: int, request: ConversationUpdate) -> ConversationResponse:
         """
         Update an existing conversation and return the updated response.
         """
-        for conversation in fake_db:
-            if conversation.id == conversation_id:
-                conversation.title = request.title
-                return conversation
-        return ValueError("Conversation not found")
+        conversation = self.respository.get_by_id(conversation_id)
+        if conversation is None:
+            raise ValueError("Conversation not found")
+        conversation.title = request.title
+        return self.repository.update(conversation)    
     
     def delete(self, conversation_id: int) -> ConversationResponse:
         """
         Delete a conversation by its ID and return the deleted response.
         """
-        for i, conversation in enumerate(fake_db):
-            if conversation.id == conversation_id:
-                deleted_conversation = fake_db.pop(i)
-                return deleted_conversation
-        return ValueError("Conversation not found")
+        conversation = self.repository.get_by_id(conversation_id)
+        if conversation is None:
+            raise ValueError("Conversation not found")
+        self.repository.delete(conversation)        
