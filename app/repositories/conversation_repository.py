@@ -2,6 +2,7 @@ from sqlmodel import Session, select
 
 from app.models.conversation import Conversation
 
+
 class ConversationRepository:
 
     def __init__(self, session: Session):
@@ -15,17 +16,17 @@ class ConversationRepository:
 
         return conversation
 
-    def get_all(self):
+    def get_all(self) -> list[Conversation]:
 
         statement = select(Conversation)
 
         return self.session.exec(statement).all()
 
-    def get_by_id(self,conversation_id: int,):
+    def get_by_id(self, conversation_id: int) -> Conversation | None:
 
-        return self.session.get(Conversation,conversation_id,)
+        return self.session.get(Conversation, conversation_id)
 
-    def update(self,conversation: Conversation,):
+    def update(self, conversation: Conversation) -> Conversation:
 
         self.session.add(conversation)
         self.session.commit()
@@ -33,7 +34,7 @@ class ConversationRepository:
 
         return conversation
 
-    def delete(self,conversation: Conversation,):
+    def delete(self, conversation: Conversation):
 
         self.session.delete(conversation)
         self.session.commit()
