@@ -1,19 +1,55 @@
-from fastapi import APIRouter
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.chat_service import ChatService
+from typing import Annotated
 
-router = APIRouter()
+from fastapi import APIRouter, Depends
 
-chat_service = ChatService()
+from app.dependencies import get_agent_service
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ResumeRequest,
+)
+from app.services import AgentService
+
+router = APIRouter(
+    prefix="/conversations/{conversation_id}",
+    tags=["Chat"],
+)
+
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    conversation_id: int,
+    request: ChatRequest,
+    service: Annotated[
+        AgentService,
+        Depends(get_agent_service),
+    ],
+):
     """
-    Endpoint to handle chat requests.
+    Send a message to the AI agent.
     """
-    answer = chat_service.chat(request.message)
-    
-    print("Type:",type(request))
-    print(request)
-    print( request.model_dump())
-    return ChatResponse(answer=answer)
+
+    return await service.chat(
+        conversation_id=conversation_id,
+        question=request.message,
+    )
+
+
+@router.post("/chat/resume", response_model=ChatResponse)
+async def resume(
+    conversation_id: int,
+    request: ResumeRequest,
+    service: Annotated[
+        AgentService,
+        Depends(get_agent_service),
+    ],
+):
+    """
+    Resume an interrupted agent workflow.
+    """
+
+    return await service.resume(
+        conversation_id=conversation_id,
+        decision=request.decision,
+        message=request.message,
+    )

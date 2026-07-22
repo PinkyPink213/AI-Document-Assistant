@@ -1,12 +1,8 @@
-from sqlmodel import create_engine, SQLModel, Session 
-from app.models import Conversation  
-
-DATABASE_URL = (
-    "postgresql+psycopg://postgres:password@localhost:5432/enterprise_ai"
-)
+from sqlmodel import create_engine, Session  
+from app.core.config  import settings
 
 engine = create_engine(
-    DATABASE_URL,
+    settings.postgres_url,
     echo=True,
 )
         

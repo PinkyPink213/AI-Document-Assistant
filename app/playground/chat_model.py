@@ -5,7 +5,8 @@ llm = get_chat_model()
 
 response = llm.invoke(
     [
-        HumanMessage(content="Hello, how are you?")
+        SystemMessage(content="You are a Python teacher."),
+        HumanMessage(content="Explain FastAPI"),
     ]
     )
 

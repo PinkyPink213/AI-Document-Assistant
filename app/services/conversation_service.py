@@ -1,4 +1,4 @@
-from app.schemas.conversation import ConversationCreate, ConversationResponse, ConversationUpdate
+from app.schemas import ConversationCreate, ConversationResponse, ConversationUpdate
 from app.models.conversation import Conversation
 from app.repositories.conversation_repository import ConversationRepository 
 from fastapi import HTTPException

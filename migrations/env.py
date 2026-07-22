@@ -6,10 +6,11 @@ from sqlalchemy import pool
 from alembic import context
 
 from sqlmodel import SQLModel
-from app.db.database import DATABASE_URL
+# from app.db.database import DATABASE_URL
+from app.core.config import settings
 
 
-from app.models import Conversation
+from app.models import Conversation, Document
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -63,7 +64,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    config.set_main_option("sqlalchemy.url", DATABASE_URL)
+    config.set_main_option("sqlalchemy.url",settings.postgres_url)
 
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),

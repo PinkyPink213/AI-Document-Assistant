@@ -1,7 +1,5 @@
 from sqlmodel import Session, select
-
-from app.models.conversation import Conversation
-
+from app.models import Conversation
 
 class ConversationRepository:
 
