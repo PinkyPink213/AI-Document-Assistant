@@ -8,6 +8,7 @@ from langgraph.types import Command
 from app.core.config  import settings
 from app.ai import (
     list_uploaded_documents,
+    count_uploaded_documents,
     count_pdf_pages,
     search_documents,
     delete_document,
@@ -34,6 +35,7 @@ def get_tools():
 
     return [
         list_uploaded_documents,
+        count_uploaded_documents,
         count_pdf_pages,
         search_documents,
         delete_document,

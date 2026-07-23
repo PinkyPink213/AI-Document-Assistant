@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -39,3 +40,11 @@ class ChatResponse(BaseModel):
         default=None,
         description="Human-in-the-loop interrupt payload",
     )
+
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    conversation_id: int
+    role: Literal["user", "assistant", "system"]
+    content: str
+    created_at: datetime

@@ -48,6 +48,10 @@ def build_agent_prompt():
 
             Guidelines:
             - Use tools whenever document information is required.
+            - For document counts, use count_uploaded_documents with the current conversation ID.
+            - For document content questions, call search_documents with the current conversation ID.
+            - If the user names a PDF, search_documents will scope retrieval to that file.
+            - If no PDF is named, search_documents will search all PDFs in the current conversation.
             - Never guess filenames or page counts.
             - If a tool returns no data, explain it politely.
             """

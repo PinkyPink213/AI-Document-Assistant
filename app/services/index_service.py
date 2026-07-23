@@ -19,7 +19,13 @@ class IndexService:
     def __init__(self, vector_store):
         self.vector_store = vector_store
 
-    async def index_pdf(self, conversation_id: int,pdf_bytes: bytes,filename: str) -> None:
+    async def index_pdf(
+        self,
+        conversation_id: int,
+        pdf_bytes: bytes,
+        filename: str,
+        document_id: str,
+    ) -> int:
         """
         Load a PDF, split it into chunks, enrich metadata,
         and index the chunks into Qdrant.
@@ -31,9 +37,11 @@ class IndexService:
             conversation_id=conversation_id,
             chunks=chunks,
             filename=filename,
+            document_id=document_id,
         )
 
         self.vector_store.add_documents(chunks)
+        return len(chunks)
 
     # async def reindex_pdf(self, pdf_path: Path) -> None:
     #     """
@@ -42,7 +50,7 @@ class IndexService:
     #     """
     #     await self.index_pdf(pdf_path)
     
-    async def delete_document(self,document_id: int) -> None:
+    def delete_document(self, document_id: str) -> None:
         self.vector_store.client.delete(
             collection_name=self.vector_store.collection_name,
             points_selector=Filter(
@@ -53,4 +61,5 @@ class IndexService:
                     )
                 ]
             ),
+            wait=True,
         )

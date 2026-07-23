@@ -8,9 +8,9 @@ from qdrant_client.models import (
 )
 
 @tool
-def list_uploaded_documents() -> list[str]:
+def list_uploaded_documents(conversation_id: int | None = None) -> list[str]:
     """
-    Return the names of all uploaded PDF documents.
+    Return uploaded PDF filenames, optionally limited to a conversation.
     """
     client = get_qdrant_client()
 
@@ -26,6 +26,11 @@ def list_uploaded_documents() -> list[str]:
     for point in points:
         payload = point.payload or {}
         metadata = payload.get("metadata", {})
+        if (
+            conversation_id is not None
+            and metadata.get("conversation_id") != conversation_id
+        ):
+            continue
 
         filename = metadata.get("filename")
 
@@ -33,6 +38,33 @@ def list_uploaded_documents() -> list[str]:
             filenames.add(filename)
 
     return sorted(filenames)
+
+
+@tool
+def count_uploaded_documents(conversation_id: int) -> int:
+    """Return the number of distinct uploaded PDF records for a conversation."""
+    client = get_qdrant_client()
+    document_ids = set()
+    offset = None
+
+    while True:
+        points, offset = client.scroll(
+            collection_name=settings.qdrant_collection_name,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+            limit=256,
+        )
+        for point in points:
+            metadata = (point.payload or {}).get("metadata", {})
+            if metadata.get("conversation_id") == conversation_id:
+                document_id = metadata.get("document_id")
+                if document_id:
+                    document_ids.add(document_id)
+        if offset is None:
+            break
+
+    return len(document_ids)
 
 
 @tool
@@ -60,14 +92,14 @@ def count_pdf_pages(conversation_id: int,filename: str) -> int:
     return 0
 
 @tool
-def search_documents(question:str)->str:
+def search_documents(question: str, conversation_id: int) -> str:
     """
-    Return answer from uploaded PDF documents.
+    Retrieve relevant content from PDFs in the active conversation.
 
-    Use this tool whenever the user asks questions about
-    the contents of uploaded documents.
-    """ 
-    return retrieve_documents(question)
+    If the question mentions an uploaded filename or its stem, retrieval is
+    limited to that file. Otherwise all PDFs in the conversation are searched.
+    """
+    return retrieve_documents(question, conversation_id)
 
 @tool
 def delete_document(filename: str) -> str:

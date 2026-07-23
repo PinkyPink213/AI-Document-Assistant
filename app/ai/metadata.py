@@ -1,9 +1,11 @@
 from langchain_core.documents import Document
-import uuid
 
-def enrich_metadata(conversation_id: int,chunks: list[Document],filename: str)-> list[Document]:
-    document_id = str(uuid.uuid4())
-    
+def enrich_metadata(
+    conversation_id: int,
+    chunks: list[Document],
+    filename: str,
+    document_id: str,
+) -> list[Document]:
     enriched_chunks = []
 
     for chunk_index, chunk in enumerate(chunks):

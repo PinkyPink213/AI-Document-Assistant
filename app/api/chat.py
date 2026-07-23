@@ -6,6 +6,7 @@ from app.dependencies import get_agent_service
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
+    ChatMessageResponse,
     ResumeRequest,
 )
 from app.services import AgentService
@@ -14,6 +15,17 @@ router = APIRouter(
     prefix="/conversations/{conversation_id}",
     tags=["Chat"],
 )
+
+
+@router.get("/messages", response_model=list[ChatMessageResponse])
+def message_history(
+    conversation_id: int,
+    service: Annotated[
+        AgentService,
+        Depends(get_agent_service),
+    ],
+):
+    return service.list_messages(conversation_id)
 
 
 @router.post("/chat", response_model=ChatResponse)

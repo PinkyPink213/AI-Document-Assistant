@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlmodel import Session, select
 from app.models import Document
 
@@ -42,3 +43,14 @@ class DocumentRepository:
         )
 
         return self.session.exec(statement).all()
+
+    def get_by_conversation_and_filename(
+        self,
+        conversation_id: int,
+        filename: str,
+    ) -> Document | None:
+        statement = select(Document).where(
+            Document.conversation_id == conversation_id,
+            func.lower(Document.filename) == filename.strip().lower(),
+        )
+        return self.session.exec(statement).first()

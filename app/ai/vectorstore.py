@@ -26,18 +26,31 @@ def create_qdrant_collection(client: QdrantClient):
     else:
         print(f"Collection {settings.qdrant_collection_name} already exists")
         
-def create_payload_index(client: QdrantClient, field_name: str):
+def create_payload_index(
+    client: QdrantClient,
+    field_name: str,
+    field_schema: PayloadSchemaType = PayloadSchemaType.KEYWORD,
+):
     collection = client.get_collection(settings.qdrant_collection_name)
     payload_schema = collection.payload_schema
 
     if field_name in payload_schema:
-        print(f"Payload index '{field_name}' already exists.")
-        return
+        current_schema = payload_schema[field_name].data_type
+        if current_schema == field_schema:
+            print(f"Payload index '{field_name}' already exists.")
+            return
+        client.delete_payload_index(
+            collection_name=settings.qdrant_collection_name,
+            field_name=field_name,
+            wait=True,
+        )
+        print(f"Recreating payload index '{field_name}' with type {field_schema.value}.")
 
     client.create_payload_index(
         collection_name=settings.qdrant_collection_name,
         field_name=field_name,
-        field_schema=PayloadSchemaType.KEYWORD,
+        field_schema=field_schema,
+        wait=True,
     )
     print(f"Created payload index: {field_name}")
 
@@ -50,8 +63,13 @@ def initialize_vectorstore(client: QdrantClient):
     Run once when the application starts.
     """
     create_qdrant_collection(client)
-    create_payload_index(client,"metadata.conversation_id")
+    create_payload_index(
+        client,
+        "metadata.conversation_id",
+        PayloadSchemaType.INTEGER,
+    )
     create_payload_index(client,"metadata.filename")
+    create_payload_index(client,"metadata.document_id")
 
 def get_vectorstore(client:QdrantClient, embeddings:OpenAIEmbeddings)->QdrantVectorStore:
        

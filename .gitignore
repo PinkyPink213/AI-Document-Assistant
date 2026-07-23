@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
 .coverage.*
 coverage.xml
@@ -25,26 +28,41 @@ env/
 .env
 .env.*
 !.env.example
+!.env.*.example
+*.pem
+*.key
+*.crt
 
-# Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/.vercel/
-
-# Node
+# Node / Next.js
 node_modules/
+.next/
+out/
+.vercel/
+coverage/
+*.tsbuildinfo
+.turbo/
+.cache/
+.eslintcache
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Runtime data
+app/uploads/*
+!app/uploads/.gitkeep
+.neon
+
 # Logs
 *.log
 
-# macOS
+# OS files
 .DS_Store
+Thumbs.db
 
-# IDE
+# IDE and editor state
 .vscode/
 .idea/
+*.swp
+*.swo
+*~

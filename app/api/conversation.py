@@ -11,8 +11,10 @@ from app.schemas.conversation import (
     ConversationResponse,
 )
 from app.services import ConversationService
+from app.services.document_service import DocumentAlreadyExistsError
 
 router = APIRouter()
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @router.post("/conversation",response_model=ConversationResponse,)
@@ -77,11 +79,20 @@ async def upload_document(
 
     pdf_bytes = await file.read()
 
-    return await document_service.upload_document(
-        conversation_id=conversation_id,
-        pdf_bytes=pdf_bytes,
-        filename=file.filename,
-    ) 
+    if len(pdf_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="PDF file is too large.",
+        )
+
+    try:
+        return await document_service.upload_document(
+            conversation_id=conversation_id,
+            pdf_bytes=pdf_bytes,
+            filename=file.filename,
+        )
+    except DocumentAlreadyExistsError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 @router.get("/{conversation_id}/documents")
 def list_documents(

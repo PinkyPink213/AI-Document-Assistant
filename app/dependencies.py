@@ -5,7 +5,7 @@ from sqlmodel import Session
 from pathlib import Path
 from app.db.database import engine
 from app.db.database import get_session
-from app.repositories import DocumentRepository, ConversationRepository
+from app.repositories import ChatMessageRepository, DocumentRepository, ConversationRepository
 from app.services import ConversationService, AgentService, IndexService, DocumentService
 from app.ai import (
     get_vectorstore,
@@ -23,12 +23,20 @@ def get_conversation_service(
 
     return ConversationService(repository)
 
-def get_agent_service() -> AgentService:
-    return AgentService()
+def get_agent_service(
+    session: Annotated[
+        Session,
+        Depends(get_session),
+    ],
+) -> AgentService:
+    return AgentService(ChatMessageRepository(session))
 
-def get_document_service():
-    session = Session(engine)
-
+def get_document_service(
+    session: Annotated[
+        Session,
+        Depends(get_session),
+    ],
+):
     repository = DocumentRepository(session)
 
     client = get_qdrant_client()

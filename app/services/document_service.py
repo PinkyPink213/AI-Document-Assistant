@@ -4,6 +4,12 @@ from app.db.database import engine
 from app.repositories import DocumentRepository
 from app.services import IndexService
 from app.models import Document
+from uuid import uuid4
+
+
+class DocumentAlreadyExistsError(ValueError):
+    pass
+
 
 class DocumentService:
     """
@@ -25,16 +31,28 @@ class DocumentService:
         pdf_bytes: bytes,
         filename: str,
     ):
+        existing = self.repository.get_by_conversation_and_filename(
+            conversation_id,
+            filename,
+        )
+        if existing:
+            raise DocumentAlreadyExistsError(
+                f"'{filename}' is already uploaded in this conversation."
+            )
+
+        vector_document_id = str(uuid4())
         chunk_count = await self.index_service.index_pdf(
             conversation_id,
             pdf_bytes,
-            filename
+            filename,
+            vector_document_id,
         )
 
         document = Document(
             conversation_id=conversation_id,
             filename=filename,
             chunk_count=chunk_count,
+            vector_document_id=vector_document_id,
         )
 
         return self.repository.create(document)
@@ -58,7 +76,7 @@ class DocumentService:
             return False
 
         # Delete vectors from Qdrant
-        self.index_service.delete_document(document.id)
+        self.index_service.delete_document(document.vector_document_id)
 
         # Delete metadata from PostgreSQL
         self.repository.delete(document)

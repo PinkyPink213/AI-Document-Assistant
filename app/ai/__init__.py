@@ -18,6 +18,7 @@ from .llm import get_llm
 from .retriever import retrieve_documents
 from .tools import ( 
     list_uploaded_documents,
+    count_uploaded_documents,
     count_pdf_pages,
     search_documents,
     delete_document,
@@ -40,6 +41,7 @@ __all__ = [
     "get_llm",
     "retrieve_documents",
     "list_uploaded_documents",
+    "count_uploaded_documents",
     "count_pdf_pages",
     "search_documents",
     "delete_document",

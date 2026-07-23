@@ -3,6 +3,7 @@ import logging
 from langgraph.types import Command
 
 from app.ai.agent import agent
+from app.repositories import ChatMessageRepository
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +12,12 @@ class AgentService:
     Service responsible for interacting with the LangGraph Agent.
     """
 
-    def __init__(self):
+    def __init__(self, message_repository: ChatMessageRepository):
         self.agent = agent
+        self.message_repository = message_repository
+
+    def list_messages(self, conversation_id: int):
+        return self.message_repository.list_by_conversation(conversation_id)
 
     async def chat(
         self,
@@ -23,22 +28,33 @@ class AgentService:
         Send a user message to the agent.
         """
         thread_id = str(conversation_id)
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+            }
+        }
         logger.info("User question: %s", question)
+        persisted_history = self.message_repository.list_by_conversation(conversation_id)
+        self.message_repository.create(conversation_id, "user", question)
+
+        state = self.agent.get_state(config)
+        checkpoint_messages = state.values.get("messages", {}) if state.values else {}
+        context_message = {
+            "role": "system",
+            "content": f"The active conversation ID is {conversation_id}. Use it for document tools.",
+        }
+        input_messages = [context_message, {"role": "user", "content": question}]
+        if not checkpoint_messages and persisted_history:
+            input_messages = [context_message] + [
+                {"role": message.role, "content": message.content}
+                for message in persisted_history
+            ] + [{"role": "user", "content": question}]
 
         result = self.agent.invoke(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": question,
-                    }
-                ]
+                "messages": input_messages,
             },
-            config={
-                "configurable": {
-                    "thread_id": thread_id,
-                }
-            },
+            config=config,
             version="v2",
         )
 
@@ -49,6 +65,7 @@ class AgentService:
             }
 
         response = result.value["messages"][-1].content
+        self.message_repository.create(conversation_id, "assistant", response)
 
         logger.info("Agent response generated.")
 
@@ -103,7 +120,10 @@ class AgentService:
 
         logger.info("Workflow resumed successfully.")
 
+        response = result.value["messages"][-1].content
+        self.message_repository.create(conversation_id, "assistant", response)
+
         return {
-            "response": result.value["messages"][-1].content,
+            "response": response,
             "interrupt": None,
         }
