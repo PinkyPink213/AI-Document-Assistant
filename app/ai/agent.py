@@ -13,7 +13,7 @@ from app.ai import (
     delete_document,
     build_agent_prompt,
     get_human_in_the_loop,
-    get_mcp_tools
+
 )
 
 
@@ -37,7 +37,6 @@ def get_tools():
         count_pdf_pages,
         search_documents,
         delete_document,
-        get_mcp_tools
         
     ]
 
