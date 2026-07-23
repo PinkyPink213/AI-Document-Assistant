@@ -24,7 +24,6 @@ from .tools import (
 )
 from .middleware import get_human_in_the_loop
 from .agent import build_agent
-from .mcp import get_mcp_tools
 
 __all__ = [
     "get_embeddings",
@@ -46,6 +45,5 @@ __all__ = [
     "delete_document",
     "build_agent_prompt",
     "get_human_in_the_loop",
-    "build_agent",
-    "get_mcp_tools"
+    "build_agent"
 ]
