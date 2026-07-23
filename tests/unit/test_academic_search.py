@@ -35,6 +35,11 @@ def test_formats_academic_result_with_verified_url_and_metadata():
 
     assert f"Title: {PAPER['title']}" in result
     assert "URL: https://doi.org/10.1000/example" in result
+    assert (
+        "Required title link: "
+        "[Transformers for Time Series Forecasting]"
+        "(https://doi.org/10.1000/example)"
+    ) in result
     assert "Venue: International Forecasting Conference" in result
     assert "Publication type: Conference" in result
     assert "[ACADEMIC SOURCE 1:" in result
@@ -53,9 +58,49 @@ def test_appends_academic_links_when_model_omits_them():
     )
 
     assert answer.endswith(
-        "**Academic sources**\n"
+        "**Paper links**\n"
         "- [Transformers for Time Series](https://doi.org/10.1000/example)"
     )
+
+
+def test_appends_each_missing_academic_link():
+    class ToolMessage:
+        type = "tool"
+        content = "\n".join(
+            [
+                "[ACADEMIC SOURCE 1: Linked paper | https://doi.org/10.1000/one]",
+                "[ACADEMIC SOURCE 2: Missing paper | https://doi.org/10.1000/two]",
+            ]
+        )
+
+    answer = ensure_academic_citations(
+        "The first result is available at https://doi.org/10.1000/one.",
+        [ToolMessage()],
+    )
+
+    assert "[Missing paper](https://doi.org/10.1000/two)" in answer
+    assert answer.count("https://doi.org/10.1000/one") == 1
+
+
+def test_moves_generic_paper_link_onto_its_title():
+    class ToolMessage:
+        type = "tool"
+        content = (
+            "[ACADEMIC SOURCE 1: Transformers for Time Series | "
+            "https://doi.org/10.1000/example]"
+        )
+
+    answer = ensure_academic_citations(
+        '"Transformers for Time Series" (2025). Useful summary. '
+        "[Open paper](https://doi.org/10.1000/example)",
+        [ToolMessage()],
+    )
+
+    assert (
+        "[Transformers for Time Series](https://doi.org/10.1000/example)"
+        in answer
+    )
+    assert "Open paper" not in answer
 
 
 @pytest.mark.asyncio

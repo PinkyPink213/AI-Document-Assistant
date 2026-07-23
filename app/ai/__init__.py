@@ -25,6 +25,8 @@ from .tools import (
 )
 from .middleware import get_human_in_the_loop
 from .academic_search import search_academic_papers
+from .checkpointer import postgres_checkpointer
+from .delete_workflow import build_delete_document_workflow
 from .agent import build_agent
 
 __all__ = [
@@ -49,5 +51,7 @@ __all__ = [
     "build_agent_prompt",
     "get_human_in_the_loop",
     "search_academic_papers",
+    "postgres_checkpointer",
+    "build_delete_document_workflow",
     "build_agent"
 ]

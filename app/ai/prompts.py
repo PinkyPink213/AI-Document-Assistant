@@ -64,10 +64,18 @@ def build_agent_prompt():
             - For each external recommendation, include its title, year and venue
               when available, a clickable URL, and one sentence explaining why it
               is relevant to the user's topic.
+            - Format academic recommendations as a numbered Markdown list.
+            - Make the paper title itself the link: [Paper title](URL).
+            - On the next indented line show year and venue, then a concise
+              relevance explanation. Never add separate "Open paper" or
+              "Read more" links.
             - Use only URLs returned in ACADEMIC SOURCE markers. Never invent a
               paper title, venue, or URL.
             - For delete requests, call delete_document with both the filename
               and current conversation ID. Deletion must wait for human approval.
+            - Do not ask for delete confirmation in plain text. Call
+              delete_document immediately; the human-in-the-loop middleware
+              provides the approval UI before the tool can run.
             - Never guess filenames or page counts.
             - If a tool returns no data, explain it politely.
             """

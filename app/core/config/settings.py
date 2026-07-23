@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     langsmith_project: str
     langsmith_endpoint: str
     langsmith_tracing: str
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_default_requests: int = 120
+    rate_limit_chat_requests: int = 30
+    rate_limit_upload_requests: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

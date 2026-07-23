@@ -1,0 +1,47 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Trigger production deployments
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+
+    steps:
+      - name: Verify deployment hooks
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ] || [ -z "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Configure RENDER_DEPLOY_HOOK_URL and VERCEL_DEPLOY_HOOK_URL in the production environment."
+            exit 1
+          fi
+
+      - name: Deploy backend to Render
+        run: |
+          curl --fail-with-body --retry 3 --request POST "$RENDER_DEPLOY_HOOK_URL"
+
+      - name: Deploy frontend to Vercel
+        run: |
+          curl --fail-with-body --retry 3 --request POST "$VERCEL_DEPLOY_HOOK_URL"

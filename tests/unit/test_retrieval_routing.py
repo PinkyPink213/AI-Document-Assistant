@@ -5,7 +5,12 @@ from app.ai.retriever import (
     format_cited_context,
     resolve_mentioned_filename,
 )
-from app.services.agent_service import ensure_source_citations, get_pending_interrupt
+from app.services.agent_service import (
+    citation_coverage,
+    ensure_academic_citations,
+    ensure_source_citations,
+    get_pending_interrupt,
+)
 
 
 def test_routes_named_file_to_filename_filter():
@@ -71,6 +76,31 @@ def test_appends_sources_when_model_omits_citations():
     assert answer.endswith("**Sources**\n- [annual-report.pdf, p. 14]")
 
 
+def test_calculates_document_and_academic_citation_coverage():
+    class ToolMessage:
+        type = "tool"
+        content = "\n".join(
+            [
+                "[SOURCE 1: annual-report.pdf, page 14]",
+                "[SOURCE 2: risks.pdf, page 3]",
+                "[ACADEMIC SOURCE 1: Forecasting paper | "
+                "https://doi.org/10.1000/example]",
+            ]
+        )
+
+    coverage = citation_coverage(
+        "See [annual-report.pdf, p. 14] and "
+        "[Forecasting paper](https://doi.org/10.1000/example).",
+        [ToolMessage()],
+    )
+
+    assert coverage == {
+        "citation_source_count": 3,
+        "citation_count": 2,
+        "citation_coverage": 2 / 3,
+    }
+
+
 def test_finds_pending_human_interrupt_in_agent_state():
     class Interrupt:
         value = {"action_requests": [{"name": "delete_document"}]}
@@ -84,3 +114,24 @@ def test_finds_pending_human_interrupt_in_agent_state():
     assert get_pending_interrupt(State()) == {
         "action_requests": [{"name": "delete_document"}]
     }
+
+
+def test_does_not_reuse_academic_sources_from_an_older_turn():
+    class Message:
+        def __init__(self, message_type, content):
+            self.type = message_type
+            self.content = content
+
+    messages = [
+        Message(
+            "tool",
+            "[ACADEMIC SOURCE 1: Old paper | https://doi.org/10.1000/old]",
+        ),
+        Message("human", "Delete my PDF"),
+        Message("ai", "Approval is required."),
+    ]
+
+    assert (
+        ensure_academic_citations("Approval is required.", messages)
+        == "Approval is required."
+    )

@@ -15,6 +15,50 @@ function MarkdownMessage({ content }: { content: string }) {
   const theme = useAppStore((state) => state.theme);
   const components = useMemo<Components>(
     () => ({
+      ol({ children, ...props }) {
+        return (
+          <ol
+            className="my-3 list-decimal space-y-4 pl-5 marker:font-semibold marker:text-primary"
+            {...props}
+          >
+            {children}
+          </ol>
+        );
+      },
+      ul({ children, ...props }) {
+        return (
+          <ul className="my-2 list-disc space-y-1.5 pl-5 marker:text-primary" {...props}>
+            {children}
+          </ul>
+        );
+      },
+      li({ children, ...props }) {
+        return (
+          <li className="pl-1.5 leading-6" {...props}>
+            {children}
+          </li>
+        );
+      },
+      p({ children, ...props }) {
+        return (
+          <p className="my-2 first:mt-0 last:mb-0" {...props}>
+            {children}
+          </p>
+        );
+      },
+      a({ children, href, ...props }) {
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-primary underline decoration-primary/35 decoration-2 underline-offset-4 transition-colors hover:decoration-primary"
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      },
       code({ className, children, ...props }) {
         const match = /language-(\w+)/.exec(className ?? "");
         const code = String(children).replace(/\n$/, "");

@@ -5,9 +5,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.pyright/
 .hypothesis/
 .tox/
 .nox/
+.uv-cache/
 .coverage
 .coverage.*
 coverage.xml
@@ -29,16 +31,24 @@ env/
 .env.*
 !.env.example
 !.env.*.example
+.envrc
+.direnv/
 *.pem
 *.key
 *.crt
+secrets/
 
 # Node / Next.js
 node_modules/
 .next/
+.next-dev/
 out/
 .vercel/
 coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
 *.tsbuildinfo
 .turbo/
 .cache/
@@ -52,9 +62,21 @@ pnpm-debug.log*
 app/uploads/*
 !app/uploads/.gitkeep
 .neon
+qdrant_storage/
+postgres_data/
+*.db
+*.sqlite
+*.sqlite3
 
 # Logs
 *.log
+*.pid
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
 # OS files
 .DS_Store

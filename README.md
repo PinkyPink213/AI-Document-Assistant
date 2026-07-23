@@ -6,6 +6,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-DC244C?logo=qdrant&logoColor=white)](https://qdrant.tech/)
 [![Tests](https://img.shields.io/badge/tests-pytest%20%7C%20Vitest-brightgreen)](#testing)
+[![CI](https://github.com/PinkyPink213/AI-Document-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/PinkyPink213/AI-Document-Assistant/actions/workflows/ci.yml)
 
 A full-stack, enterprise-style AI workspace for uploading PDFs, managing
 conversations, and asking document-grounded questions. The application combines
@@ -22,12 +23,17 @@ academic discovery through MCP, and human approval for destructive actions.
 - **Conversation-scoped RAG** — retrieves only documents belonging to the active conversation.
 - **Filename-aware retrieval** — searches a specific PDF when its name is mentioned; otherwise searches the full conversation collection.
 - **Reranking and citations** — reranks retrieved chunks and produces page-level source references.
-- **Agentic tool calling** — LangGraph agent selects document, counting, search, and deletion tools.
-- **Academic Search MCP** — recommends external papers from scholarly providers with verified titles and URLs.
-- **Human-in-the-loop controls** — requires approval or rejection before document deletion.
+- **Agentic tool calling** — the LangGraph agent selects document listing, counting, retrieval, and academic discovery tools.
+- **Academic Search MCP** — searches Semantic Scholar, Crossref, OpenAlex, or PubMed and returns clickable verified paper links.
+- **Deterministic deletion workflow** — explicit `delete/remove/ลบ + filename.pdf` requests bypass LLM decision-making and open approval controls immediately.
+- **Persistent human-in-the-loop controls** — stores LangGraph checkpoints in PostgreSQL so approval workflows survive backend restarts.
+- **Consistent deletion** — approved document deletion removes PostgreSQL metadata and conversation-scoped Qdrant vectors, then refreshes the sidebar.
+- **Synchronized deletion UI** — successful approval immediately updates the document list and document statistics, then revalidates both against the API.
 - **Persistent chat history** — stores user and assistant messages in PostgreSQL.
 - **Progressive response rendering** — responsive chat states, markdown, syntax highlighting, retry controls, and response continuation.
 - **Health monitoring** — API and database health indicators exposed through REST endpoints.
+- **LangSmith observability** — correlated traces and structured JSON logs for requests, conversations, retrieval, tools, LLM usage, errors, cost, and citation coverage.
+- **API protection** — endpoint-specific rate limits and server-side PDF signature validation.
 - **Tested frontend and backend** — Pytest integration/unit tests plus Vitest, Testing Library, and MSW.
 
 ## 🏗️ Architecture Overview
@@ -39,25 +45,38 @@ flowchart LR
     SVC --> REPO["Repository Layer"]
     REPO --> PG[("PostgreSQL")]
 
-    SVC --> AGENT["LangGraph AI Agent"]
+    SVC --> ROUTER{"Request Routing"}
+    ROUTER -->|Document question| AGENT["LangGraph AI Agent"]
     AGENT --> RAG["RAG + Reranking"]
     RAG --> QD[("Qdrant")]
     AGENT --> LLM["OpenAI API"]
     AGENT --> MCP["Academic Search MCP"]
-    AGENT --> HITL{"Human Approval"}
+
+    ROUTER -->|Explicit delete request| DELETE["LangGraph Delete Workflow"]
+    DELETE --> CHECKPOINT[("PostgreSQL Checkpoints")]
+    DELETE --> HITL{"Approve / Reject"}
     HITL -->|Approve| PG
     HITL -->|Approve| QD
 ```
 
+### Request routing
+
+| Request type                   | Execution path                                                             |
+| ------------------------------ | -------------------------------------------------------------------------- |
+| Question about an uploaded PDF | Conversation/filename filter → Qdrant retrieval → reranking → cited answer |
+| External paper recommendation  | Academic Search MCP → normalized paper metadata → clickable source links   |
+| Explicit PDF deletion          | Deterministic delete workflow → PostgreSQL checkpoint → Approve/Reject     |
+| Conversation deletion          | PostgreSQL rows + Qdrant vectors + LangGraph checkpoint cleanup            |
+
 The backend follows a layered architecture:
 
-| Layer      | Responsibility                                                   |
-| ---------- | ---------------------------------------------------------------- |
-| API        | HTTP routing, request validation, and response models            |
-| Service    | Application workflows and business logic                         |
-| Repository | PostgreSQL persistence and database queries                      |
-| AI         | Agent orchestration, tools, retrieval, reranking, and citations  |
-| Frontend   | Feature-based UI, server state, local state, and API integration |
+| Layer      | Responsibility                                                                |
+| ---------- | ----------------------------------------------------------------------------- |
+| API        | HTTP routing, request validation, and response models                         |
+| Service    | Application workflows and business logic                                      |
+| Repository | PostgreSQL persistence and database queries                                   |
+| AI         | Agent orchestration, MCP, persistent workflows, RAG, reranking, and citations |
+| Frontend   | Feature-based UI, server state, local state, and API integration              |
 
 ## 🧰 Tech Stack
 
@@ -66,7 +85,7 @@ The backend follows a layered architecture:
 | Backend              | Python 3.12, FastAPI, Pydantic, SQLModel                    |
 | AI                   | LangChain, LangGraph, OpenAI API, Academic Search MCP       |
 | Retrieval            | Qdrant, OpenAI embeddings, metadata filtering, reranking    |
-| Database             | PostgreSQL, Alembic                                         |
+| Persistence          | PostgreSQL, Alembic, LangGraph PostgreSQL Checkpointer      |
 | Frontend             | React 19, Next.js 15, TypeScript, Tailwind CSS, shadcn/ui   |
 | State and networking | TanStack Query, Zustand, Axios                              |
 | UX                   | Framer Motion, React Markdown, syntax highlighting          |
@@ -80,8 +99,7 @@ The backend follows a layered architecture:
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 20+ and npm
-- PostgreSQL
-- Qdrant or Qdrant Cloud
+- Docker with Docker Compose (recommended), or separate PostgreSQL and Qdrant instances
 - OpenAI API key
 
 ### 1. Clone the repository
@@ -91,7 +109,34 @@ git clone <your-repository-url>
 cd enterprise-ai-workspace
 ```
 
-### 2. Configure the backend
+### 2. Start PostgreSQL and Qdrant
+
+The included Compose file runs the complete local data layer with persistent
+volumes:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+| Service    | Local address                     | Purpose                                    |
+| ---------- | --------------------------------- | ------------------------------------------ |
+| PostgreSQL | `localhost:5432`                  | Application data and LangGraph checkpoints |
+| Qdrant     | `http://localhost:6333`           | Document embeddings and metadata           |
+| Qdrant UI  | `http://localhost:6333/dashboard` | Local collection inspection                |
+
+The default database credentials are `postgres` / `password`, with database
+name `enterprise_ai`. Override `POSTGRES_USER`, `POSTGRES_PASSWORD`,
+`POSTGRES_DB`, `POSTGRES_PORT`, `QDRANT_HTTP_PORT`, or `QDRANT_GRPC_PORT` in
+your shell or root `.env` when required.
+
+Stop the services without deleting their data:
+
+```bash
+docker compose stop
+```
+
+### 3. Configure and run the backend
 
 Create a `.env` file in the project root:
 
@@ -110,7 +155,17 @@ LANGSMITH_API_KEY=
 LANGSMITH_PROJECT=enterprise-ai-document-assistant
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 LANGSMITH_TRACING=false
+
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_WINDOW_SECONDS=60
+RATE_LIMIT_DEFAULT_REQUESTS=120
+RATE_LIMIT_CHAT_REQUESTS=30
+RATE_LIMIT_UPLOAD_REQUESTS=10
 ```
+
+Set `LANGSMITH_TRACING=true` in staging or production to send traces. Every chat
+turn is grouped by `conversation_id` and enriched with the HTTP `request_id`.
+Do not commit LangSmith or OpenAI API keys.
 
 Install dependencies, apply migrations, and start FastAPI:
 
@@ -121,10 +176,17 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+At startup, LangGraph creates or upgrades its PostgreSQL checkpoint tables
+automatically. These tables persist agent state and pending human approvals.
+Alembic manages the application tables, while Qdrant collections and payload
+indexes are initialized by the backend startup lifecycle.
+The application uses the conversation ID for the main agent thread and a
+dedicated `conversation:{id}:document-deletion` thread for deletion approval.
+
 Interactive API documentation is available at
 [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs).
 
-### 3. Configure the frontend
+### 4. Configure and run the frontend
 
 ```bash
 cd frontend
@@ -135,15 +197,21 @@ npm run dev
 
 Open [`http://localhost:3000`](http://localhost:3000).
 
-### Optional: PostgreSQL with Docker
+The frontend API URL is configured in `frontend/.env.local`:
 
-The included Compose file starts PostgreSQL locally:
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+### Run only one infrastructure service
 
 ```bash
 docker compose up -d postgres
+docker compose up -d qdrant
 ```
 
-Qdrant must be configured separately through a local instance or Qdrant Cloud.
+For Qdrant Cloud or Neon, keep the unused local service stopped and replace
+`QDRANT_URL`, `QDRANT_API_KEY`, or `POSTGRES_URL` in the backend `.env`.
 
 ## 🔌 API Overview
 
@@ -168,28 +236,50 @@ Qdrant must be configured separately through a local instance or Qdrant Cloud.
 
 ```text
 enterprise-ai-workspace/
+├── .github/workflows/
+│   ├── ci.yml                  # Backend/frontend validation
+│   └── deploy.yml              # CI-gated production deploy hooks
 ├── app/
-│   ├── ai/                 # Agent, tools, RAG, MCP, embeddings, and Qdrant
-│   ├── api/                # FastAPI route handlers
-│   ├── core/               # Configuration, logging, and startup
-│   ├── db/                 # Database engine and sessions
-│   ├── models/             # SQLModel database models
-│   ├── repositories/       # Persistence and query layer
-│   ├── schemas/            # API request and response models
-│   ├── services/           # Application workflows and business logic
-│   └── main.py             # FastAPI application entry point
+│   ├── ai/
+│   │   ├── academic_search.py  # Lazy Academic Search MCP bridge
+│   │   ├── agent.py            # LangGraph document assistant
+│   │   ├── checkpointer.py     # Async PostgreSQL checkpointer lifecycle
+│   │   ├── delete_workflow.py  # Deterministic persistent approval workflow
+│   │   ├── retriever.py        # Filename routing, retrieval, reranking, citations
+│   │   ├── tools.py            # Typed LangChain tools
+│   │   └── vectorstore.py      # Qdrant collection and payload indexes
+│   ├── api/                    # Conversation, chat, document, and health routes
+│   ├── core/
+│   │   ├── config/             # Settings, logging, LangSmith, and startup
+│   │   ├── observability.py    # JSON logs and LangSmith metrics callbacks
+│   │   ├── rate_limit.py       # Endpoint-specific sliding-window limiter
+│   │   └── security.py         # PDF content-signature validation
+│   ├── db/                     # SQLModel engine and sessions
+│   ├── models/                 # Conversation, document, and chat tables
+│   ├── repositories/           # PostgreSQL query layer
+│   ├── schemas/                # Typed API contracts
+│   ├── services/               # Agent, conversation, document, index, and RAG logic
+│   ├── dependencies.py         # FastAPI dependency composition
+│   └── main.py                 # Application lifespan and router registration
 ├── frontend/
-│   ├── app/                # Next.js App Router
-│   ├── components/         # Shared UI components
-│   ├── features/           # Chat, conversation, document, and health modules
-│   ├── services/           # Axios and TanStack Query configuration
-│   ├── store/              # Zustand application state
-│   └── test/               # MSW and frontend test setup
-├── migrations/             # Alembic database migrations
-├── tests/                  # Backend unit and integration tests
-├── scripts/                # Maintenance and recovery utilities
-├── docker-compose.yml      # Optional local PostgreSQL
-├── pyproject.toml          # Python dependencies and tooling
+│   ├── app/                    # Next.js App Router and global styles
+│   ├── components/ui/          # Reusable UI and error components
+│   ├── features/
+│   │   ├── chat/               # Markdown chat, approval UI, and history state
+│   │   ├── conversation/       # Optimistic conversation CRUD
+│   │   ├── documents/          # Upload, progress, listing, and deletion
+│   │   └── health/             # API and PostgreSQL health indicators
+│   ├── services/               # Axios and TanStack Query configuration
+│   ├── store/                  # Persisted Zustand application state
+│   └── test/                   # Vitest and MSW setup
+├── migrations/                 # Alembic application-table migrations
+├── tests/
+│   ├── integration/            # REST API behavior
+│   └── unit/                   # RAG, MCP, checkpoint, and delete workflow tests
+├── scripts/                    # Metadata recovery utilities
+├── docker-compose.yml          # Local PostgreSQL and Qdrant infrastructure
+├── pyproject.toml              # Python dependencies and test configuration
+├── uv.lock                     # Reproducible Python dependency lock
 └── README.md
 ```
 
@@ -202,6 +292,11 @@ uv sync
 uv run pytest
 ```
 
+Current backend coverage includes REST integration, retrieval routing, academic
+MCP formatting, citation enforcement, PostgreSQL URL handling, persistent
+delete approval behavior, rate limiting, observability context, and PDF
+signature validation.
+
 Frontend:
 
 ```bash
@@ -211,17 +306,107 @@ npm run test
 npm run build
 ```
 
+The frontend suite covers components, hooks, API clients, stores, forms,
+markdown/code rendering, approval controls, CRUD behavior, uploads, health
+status, and error handling through MSW.
+
+## 📈 Observability
+
+The backend emits one-line JSON logs and returns `X-Request-ID` on every HTTP
+response. Supplying an `X-Request-ID` request header preserves the caller's ID;
+otherwise the server creates one. Chat traces include:
+
+| Signal            | JSON log / LangSmith representation                         |
+| ----------------- | ----------------------------------------------------------- |
+| Request ID        | `request_id` on every log and root trace                    |
+| Conversation ID   | `conversation_id` metadata for thread grouping              |
+| Tool execution    | Tool name, success/failure, and latency child runs          |
+| Retrieval latency | `retrieval_latency_ms`, candidate count, and selected count |
+| LLM latency       | `llm_latency_ms` per call and chat turn                     |
+| Token usage       | Input, output, and total tokens                             |
+| Cost per request  | LangSmith automatic model-price cost tracking               |
+| Error rate        | Process counters in logs and LangSmith project dashboards   |
+| Citation coverage | Cited sources divided by retrieved source markers           |
+
+In LangSmith, open the configured project and use **Monitoring → Dashboard**.
+The default dashboard provides trace latency, error rate, tool performance,
+tokens, and cost. Create a custom chart for the `citation_coverage` trace
+metadata and group operational charts by `conversation_id` when debugging a
+thread.
+
+## 🔐 Security Controls
+
+The API applies endpoint-specific sliding-window limits per client:
+
+| Scope           | Default limit |
+| --------------- | ------------: |
+| Chat and resume |     30/minute |
+| PDF upload      |     10/minute |
+| Other API calls |    120/minute |
+
+Health checks, OpenAPI, and CORS preflight requests are exempt. Successful
+responses include `X-RateLimit-*` headers; rejected requests return HTTP `429`
+with `Retry-After`. Limits are configurable through the `RATE_LIMIT_*`
+environment variables.
+
+Uploads are checked using both the declared `application/pdf` MIME type and a
+PDF `%PDF-x.y` content signature within the first 1,024 bytes. This rejects
+common extension/MIME spoofing before parsing or indexing. Signature validation
+is not malware scanning; production environments should add antivirus or
+content-disarm processing for untrusted public uploads.
+
+The included limiter stores counters in each backend process. Use a shared
+Redis-backed limiter before scaling to multiple backend replicas.
+
+## 🔄 CI/CD
+
+GitHub Actions runs CI on every pull request and every push to `main`.
+
+```text
+Pull request / push to main
+├── Backend
+│   ├── uv sync --locked
+│   ├── Ruff
+│   └── Pytest
+└── Frontend
+    ├── npm ci
+    ├── ESLint
+    ├── Vitest + coverage
+    └── Next.js production build
+
+Successful CI on main
+└── Production environment
+    ├── Render backend deploy hook
+    └── Vercel frontend deploy hook
+```
+
+Create a protected GitHub environment named `production`, then add these
+environment secrets under **Settings → Environments → production**:
+
+| Secret                   | Value                                                   |
+| ------------------------ | ------------------------------------------------------- |
+| `RENDER_DEPLOY_HOOK_URL` | Render backend deploy hook URL                          |
+| `VERCEL_DEPLOY_HOOK_URL` | Vercel deploy hook URL configured for the `main` branch |
+
+Treat deploy-hook URLs as passwords. Disable direct automatic production
+deployments in the hosting dashboards when using this gated workflow; otherwise
+a push can deploy once through the provider's Git integration and again after
+CI. Preview deployments may remain enabled for pull requests.
+
+For a human approval gate, enable **Required reviewers** on the GitHub
+`production` environment. Production can also be triggered manually from
+**Actions → Deploy production → Run workflow**.
+
 ## 🗺️ Future Improvements
 
-- Persistent PostgreSQL checkpointer for LangGraph workflows
 - Authentication, role-based access control, and organization isolation
 - Native server-sent event streaming from FastAPI
 - Automated RAG evaluation for recall, faithfulness, and citation accuracy
 - Hybrid dense/sparse retrieval and configurable reranking models
 - Background document processing with task queues
-- Rate limiting, audit logs, token usage, and cost monitoring
-- OpenTelemetry/LangSmith dashboards and alerting
-- Full Docker deployment and CI/CD with GitHub Actions
+- Audit logs and Redis-backed distributed rate limiting
+- OpenTelemetry export and LangSmith alert policies
+- Production backend/frontend container images
 
 ## 📄 License
 

@@ -1,8 +1,6 @@
 from typing import Annotated
 
-from typing import Annotated
-
-from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from app.dependencies import  DocumentServiceDep
 from app.dependencies import get_conversation_service
 from app.schemas.conversation import (
@@ -12,6 +10,7 @@ from app.schemas.conversation import (
 )
 from app.services import ConversationService
 from app.services.document_service import DocumentAlreadyExistsError
+from app.core.security import has_valid_pdf_signature
 
 router = APIRouter()
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -54,7 +53,7 @@ def update(
 
 
 @router.delete("/conversation/{conversation_id}",status_code=204)
-def delete(
+async def delete(
     conversation_id: int,
     service: Annotated[
         ConversationService,
@@ -62,7 +61,7 @@ def delete(
     ],
 ):
    
-    service.delete(conversation_id)
+    await service.delete(conversation_id)
 
 
 @router.post("/{conversation_id}/documents")
@@ -83,6 +82,12 @@ async def upload_document(
         raise HTTPException(
             status_code=413,
             detail="PDF file is too large.",
+        )
+
+    if not has_valid_pdf_signature(pdf_bytes):
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file content is not a valid PDF.",
         )
 
     try:

@@ -50,7 +50,7 @@ class FakeConversationService:
         self.conversations[conversation_id]["updated_at"] = datetime.now(UTC)
         return self.conversations[conversation_id]
 
-    def delete(self, conversation_id: int):
+    async def delete(self, conversation_id: int):
         self.conversations.pop(conversation_id, None)
 
 
@@ -233,6 +233,13 @@ async def test_document_upload_list_delete_and_validation(client):
         files={"file": ("brief.txt", b"text", "text/plain")},
     )
     assert invalid.status_code == 400
+
+    spoofed_pdf = await client.post(
+        "/1/documents",
+        files={"file": ("malware.pdf", b"MZ executable", "application/pdf")},
+    )
+    assert spoofed_pdf.status_code == 400
+    assert "content is not a valid PDF" in spoofed_pdf.json()["detail"]
 
     oversized = await client.post(
         "/1/documents",

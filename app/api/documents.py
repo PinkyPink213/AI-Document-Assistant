@@ -1,8 +1,6 @@
-from pathlib import Path
-from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, HTTPException
 
-from app.core.config import settings
-from app.dependencies import  DocumentServiceDep
+from app.dependencies import DocumentServiceDep
 
 router = APIRouter(
     prefix="/documents",

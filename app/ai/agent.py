@@ -1,6 +1,6 @@
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.core.config import settings
 from app.ai import (
@@ -14,19 +14,6 @@ from app.ai import (
     get_human_in_the_loop,
 )
 
-
-# from langgraph.checkpoint.postgres import PostgresSaver
-
-# checkpointer = PostgresSaver.from_conn_string(
-#     settings.postgres_url
-# )
-# checkpointer.setup()
-
-THREAD_CONFIG = {
-    "configurable": {
-        "thread_id": "demo-thread",
-    }
-}
 
 def get_tools():
     return [
@@ -48,8 +35,7 @@ def get_model():
     )
 
 
-def build_agent():
-
+def build_agent(checkpointer: BaseCheckpointSaver):
     return create_agent(
         model=get_model(),
         tools=get_tools(),
@@ -57,9 +43,6 @@ def build_agent():
         middleware=[
             get_human_in_the_loop()
         ],
-        checkpointer=InMemorySaver(),
+        checkpointer=checkpointer,
         name="pdf_assistant",
     )
-
-
-agent = build_agent()

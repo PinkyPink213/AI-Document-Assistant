@@ -35,6 +35,32 @@ describe("MessageList", () => {
     expect(screen.getByLabelText("AI assistant")).toBeInTheDocument();
   });
 
+  it("renders paper URLs as visible links in a new tab", () => {
+    renderWithProviders(
+      <MessageList
+        onRegenerate={vi.fn()}
+        messages={[
+          {
+            id: "paper-1",
+            conversationId: 1,
+            role: "assistant",
+            content: "1. [Transformers for Time Series](https://doi.org/10.1000/example)",
+            createdAt: "2026-07-23T00:00:00Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Transformers for Time Series" })).toHaveAttribute(
+      "href",
+      "https://doi.org/10.1000/example",
+    );
+    expect(screen.getByRole("link", { name: "Transformers for Time Series" })).toHaveAttribute(
+      "target",
+      "_blank",
+    );
+  });
+
   it("renders human approval controls and returns the decision", async () => {
     const user = userEvent.setup();
     const onDecision = vi.fn();

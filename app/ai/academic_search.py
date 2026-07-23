@@ -105,6 +105,7 @@ def format_academic_results(payload: dict[str, Any]) -> str:
             f"[ACADEMIC SOURCE {index}: {title} | {url}]",
             f"Title: {title}",
             f"URL: {url}",
+            f"Required title link: [{title}]({url})",
         ]
         if paper.get("year"):
             details.append(f"Year: {paper['year']}")

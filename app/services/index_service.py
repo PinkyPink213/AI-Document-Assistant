@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from app.ai import (
     load_pdf,
     split_documents,

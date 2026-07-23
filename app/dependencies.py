@@ -1,18 +1,24 @@
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlmodel import Session
-from pathlib import Path
-from app.db.database import engine
+
 from app.db.database import get_session
-from app.repositories import ChatMessageRepository, DocumentRepository, ConversationRepository
-from app.services import ConversationService, AgentService, IndexService, DocumentService
+from app.repositories import (
+    ChatMessageRepository,
+    ConversationRepository,
+    DocumentRepository,
+)
+from app.services import AgentService, ConversationService, DocumentService, IndexService
 from app.ai import (
     get_vectorstore,
     get_qdrant_client,
     get_embeddings
 )
+
+
 def get_conversation_service(
+    request: Request,
     session: Annotated[
         Session,
         Depends(get_session),
@@ -22,16 +28,23 @@ def get_conversation_service(
     return ConversationService(
         ConversationRepository(session),
         DocumentRepository(session),
+        ChatMessageRepository(session),
         get_qdrant_client(),
+        request.app.state.agent.checkpointer,
     )
 
 def get_agent_service(
+    request: Request,
     session: Annotated[
         Session,
         Depends(get_session),
     ],
 ) -> AgentService:
-    return AgentService(ChatMessageRepository(session))
+    return AgentService(
+        ChatMessageRepository(session),
+        request.app.state.agent,
+        request.app.state.delete_document_workflow,
+    )
 
 def get_document_service(
     session: Annotated[

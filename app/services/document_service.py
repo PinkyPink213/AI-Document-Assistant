@@ -1,6 +1,3 @@
-from pathlib import Path
-from sqlmodel import Session
-from app.db.database import engine
 from app.repositories import DocumentRepository
 from app.services import IndexService
 from app.models import Document
@@ -56,9 +53,6 @@ class DocumentService:
         )
 
         return self.repository.create(document)
-
-    def list_documents(self):
-        return self.repository.get_all()
 
     def get_document(
         self,

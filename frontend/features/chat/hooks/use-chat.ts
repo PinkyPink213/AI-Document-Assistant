@@ -9,6 +9,8 @@ import {
 import { useChatStore } from "@/features/chat/hooks/use-chat-store";
 import type { ChatMessage } from "@/features/chat/types/chat";
 import { toApiFailure } from "@/services/api";
+import { documentKeys } from "@/features/documents/api/document-api";
+import type { DocumentResource } from "@/features/documents/types/document";
 
 function createMessage(
   conversationId: number,
@@ -22,6 +24,32 @@ function createMessage(
     content,
     createdAt: new Date().toISOString(),
   };
+}
+
+function getApprovalPrompt(interrupt: Record<string, unknown>) {
+  const requests = interrupt.action_requests;
+  if (!Array.isArray(requests)) return "Review this action before continuing.";
+
+  const request = requests[0];
+  if (!request || typeof request !== "object") return "Review this action before continuing.";
+  const args = "args" in request ? request.args : null;
+  if (!args || typeof args !== "object" || !("filename" in args)) {
+    return "Review this action before continuing.";
+  }
+
+  return `Delete "${String(args.filename)}"? This removes its document metadata and vector data.`;
+}
+
+function getInterruptedFilename(interrupt?: Record<string, unknown> | null) {
+  const requests = interrupt?.action_requests;
+  if (!Array.isArray(requests)) return null;
+
+  const request = requests[0];
+  if (!request || typeof request !== "object") return null;
+  const args = "args" in request ? request.args : null;
+  if (!args || typeof args !== "object" || !("filename" in args)) return null;
+
+  return String(args.filename);
 }
 
 async function revealResponse(
@@ -103,13 +131,20 @@ export function useChat(conversationId: number | null) {
 
       try {
         const response = await chatMutation.mutateAsync({ id: conversationId, message: trimmed });
-        await revealResponse(
-          conversationId,
-          pendingAssistant.id,
-          response.response ?? "The assistant requires a decision before continuing.",
-          updateMessage,
-        );
-        updateMessage(conversationId, pendingAssistant.id, { interrupt: response.interrupt });
+        if (response.interrupt) {
+          updateMessage(conversationId, pendingAssistant.id, {
+            content: getApprovalPrompt(response.interrupt),
+            pending: false,
+            interrupt: response.interrupt,
+          });
+        } else {
+          await revealResponse(
+            conversationId,
+            pendingAssistant.id,
+            response.response ?? "No response was returned.",
+            updateMessage,
+          );
+        }
         if (!response.interrupt) {
           await queryClient.invalidateQueries({ queryKey: chatKeys.history(conversationId) });
         }
@@ -136,6 +171,8 @@ export function useChat(conversationId: number | null) {
     async (decision: "approve" | "reject" = "approve") => {
       if (!conversationId) return;
       const interruptedMessage = approvalMessage;
+      const deletedFilename =
+        decision === "approve" ? getInterruptedFilename(interruptedMessage?.interrupt) : null;
       if (interruptedMessage) {
         updateMessage(conversationId, interruptedMessage.id, { interrupt: null });
       }
@@ -151,7 +188,20 @@ export function useChat(conversationId: number | null) {
           updateMessage,
         );
         updateMessage(conversationId, pendingAssistant.id, { interrupt: response.interrupt });
+
+        // Keep the document list and its statistics card in sync immediately.
+        // The following invalidation still verifies the result against the API.
+        if (deletedFilename) {
+          queryClient.setQueryData<DocumentResource[]>(
+            documentKeys.byConversation(conversationId),
+            (documents = []) =>
+              documents.filter((document) => document.filename !== deletedFilename),
+          );
+        }
         await queryClient.invalidateQueries({ queryKey: chatKeys.history(conversationId) });
+        await queryClient.invalidateQueries({
+          queryKey: documentKeys.byConversation(conversationId),
+        });
       } catch (error) {
         if (interruptedMessage) {
           updateMessage(conversationId, interruptedMessage.id, {

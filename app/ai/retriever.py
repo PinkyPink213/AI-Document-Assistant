@@ -1,8 +1,11 @@
+import logging
 import re
+import time
 from pathlib import Path
 
 from langchain_core.documents import Document as LangChainDocument
 from langchain_core.prompts import ChatPromptTemplate
+from langsmith import traceable
 from pydantic import BaseModel, Field
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 from sqlmodel import Session, select
@@ -13,6 +16,7 @@ from app.ai.vectorstore import get_qdrant_client, get_vectorstore
 from app.db.database import engine
 from app.models import Document
 
+logger = logging.getLogger(__name__)
 
 class RerankSelection(BaseModel):
     chunk_ids: list[int] = Field(
@@ -125,7 +129,9 @@ def format_cited_context(documents: list[LangChainDocument]) -> str:
     return "\n\n".join(sections)
 
 
+@traceable(name="retrieve_documents", run_type="retriever")
 def retrieve_documents(question: str, conversation_id: int) -> str:
+    started = time.perf_counter()
     client = get_qdrant_client()
     filenames = list_conversation_filenames(conversation_id)
     filename = resolve_mentioned_filename(question, filenames)
@@ -140,7 +146,33 @@ def retrieve_documents(question: str, conversation_id: int) -> str:
 
     if not candidates:
         scope = f"'{filename}'" if filename else "this conversation's uploaded documents"
+        logger.info(
+            "Document retrieval completed",
+            extra={
+                "event": "retrieval.completed",
+                "retrieval_latency_ms": round(
+                    (time.perf_counter() - started) * 1000,
+                    2,
+                ),
+                "candidate_count": 0,
+                "selected_count": 0,
+                "filename_filter": filename,
+            },
+        )
         return f"No relevant content was found in {scope}."
 
     documents = rerank_documents(question, candidates, limit=6)
+    logger.info(
+        "Document retrieval completed",
+        extra={
+            "event": "retrieval.completed",
+            "retrieval_latency_ms": round(
+                (time.perf_counter() - started) * 1000,
+                2,
+            ),
+            "candidate_count": len(candidates),
+            "selected_count": len(documents),
+            "filename_filter": filename,
+        },
+    )
     return format_cited_context(documents)

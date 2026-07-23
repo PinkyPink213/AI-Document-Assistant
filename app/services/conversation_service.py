@@ -2,6 +2,7 @@ from app.schemas import ConversationCreate, ConversationResponse, ConversationUp
 from app.models.conversation import Conversation
 from app.repositories.conversation_repository import ConversationRepository 
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.chat_message_repository import ChatMessageRepository
 from app.core.config.settings import settings
 from fastapi import HTTPException
 from qdrant_client.models import FieldCondition, Filter, MatchValue
@@ -11,11 +12,15 @@ class ConversationService:
         self,
         repository: ConversationRepository,
         document_repository: DocumentRepository,
+        chat_message_repository: ChatMessageRepository,
         qdrant_client,
+        checkpointer,
     ):
         self.repository = repository
         self.document_repository = document_repository
+        self.chat_message_repository = chat_message_repository
         self.qdrant_client = qdrant_client
+        self.checkpointer = checkpointer
     
     def create(self, request: ConversationCreate) -> ConversationResponse:
         """
@@ -66,7 +71,7 @@ class ConversationService:
 
         return ConversationResponse.model_validate(conversation)  
     
-    def delete(self, conversation_id: int) -> ConversationResponse:
+    async def delete(self, conversation_id: int) -> None:
         """
         Delete a conversation by its ID and return the deleted response.
         """
@@ -90,5 +95,10 @@ class ConversationService:
             ),
             wait=True,
         )
+        await self.checkpointer.adelete_thread(str(conversation_id))
+        await self.checkpointer.adelete_thread(
+            f"conversation:{conversation_id}:document-deletion"
+        )
+        self.chat_message_repository.delete_by_conversation_id(conversation_id)
         self.document_repository.delete_by_conversation_id(conversation_id)
         self.repository.delete(conversation)

@@ -142,4 +142,6 @@ def delete_document(filename: str, conversation_id: int) -> str:
         )
         repository.delete(document)
 
-    return f"Deleted '{filename}' from conversation {conversation_id}."
+    return (
+        f'The document "{filename}" was successfully deleted from this conversation.'
+    )
