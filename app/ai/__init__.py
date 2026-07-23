@@ -24,6 +24,7 @@ from .tools import (
     delete_document,
 )
 from .middleware import get_human_in_the_loop
+from .academic_search import search_academic_papers
 from .agent import build_agent
 
 __all__ = [
@@ -47,5 +48,6 @@ __all__ = [
     "delete_document",
     "build_agent_prompt",
     "get_human_in_the_loop",
+    "search_academic_papers",
     "build_agent"
 ]

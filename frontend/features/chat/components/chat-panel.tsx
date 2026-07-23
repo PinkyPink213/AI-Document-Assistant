@@ -12,7 +12,14 @@ export function ChatPanel() {
   const conversationId = useAppStore((state) => state.currentConversationId);
   const rightSidebarOpen = useAppStore((state) => state.rightSidebarOpen);
   const setRightSidebarOpen = useAppStore((state) => state.setRightSidebarOpen);
-  const { messages, sendMessage, continueResponse, isSending } = useChat(conversationId);
+  const {
+    messages,
+    sendMessage,
+    continueResponse,
+    isSending,
+    isAwaitingApproval,
+    isLoadingHistory,
+  } = useChat(conversationId);
   const [draft, setDraft] = useState("");
 
   const handleSend = useCallback(() => {
@@ -60,7 +67,7 @@ export function ChatPanel() {
       </div>
       <ChatComposer
         value={draft}
-        disabled={!conversationId || isSending}
+        disabled={!conversationId || isSending || isAwaitingApproval || isLoadingHistory}
         onChange={setDraft}
         onSend={handleSend}
       />

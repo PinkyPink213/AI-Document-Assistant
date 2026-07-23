@@ -1,4 +1,4 @@
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlmodel import Session, select
 from app.models import Document
 
@@ -54,3 +54,8 @@ class DocumentRepository:
             func.lower(Document.filename) == filename.strip().lower(),
         )
         return self.session.exec(statement).first()
+
+    def delete_by_conversation_id(self, conversation_id: int) -> None:
+        self.session.exec(
+            delete(Document).where(Document.conversation_id == conversation_id)
+        )

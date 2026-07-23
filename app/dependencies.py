@@ -19,9 +19,11 @@ def get_conversation_service(
     ],
 ):
 
-    repository = ConversationRepository(session)
-
-    return ConversationService(repository)
+    return ConversationService(
+        ConversationRepository(session),
+        DocumentRepository(session),
+        get_qdrant_client(),
+    )
 
 def get_agent_service(
     session: Annotated[

@@ -1,11 +1,14 @@
 from langchain.tools import tool
 from app.ai import get_qdrant_client, retrieve_documents
-from app.core.config  import settings
+from app.core.config import settings
+from app.db.database import engine
+from app.repositories import DocumentRepository
 from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
 )
+from sqlmodel import Session
 
 @tool
 def list_uploaded_documents(conversation_id: int | None = None) -> list[str]:
@@ -102,24 +105,41 @@ def search_documents(question: str, conversation_id: int) -> str:
     return retrieve_documents(question, conversation_id)
 
 @tool
-def delete_document(filename: str) -> str:
+def delete_document(filename: str, conversation_id: int) -> str:
     """
-    Delete an uploaded PDF document from Qdrant.
+    Delete a PDF and its vectors from the active conversation.
+
+    This action requires human approval. The conversation ID must be the
+    active conversation ID supplied by the system context.
     """
+    with Session(engine) as session:
+        repository = DocumentRepository(session)
+        document = repository.get_by_conversation_and_filename(
+            conversation_id,
+            filename,
+        )
+        if document is None:
+            return (
+                f"'{filename}' was not found in conversation {conversation_id}; "
+                "nothing was deleted."
+            )
 
-    client = get_qdrant_client()
+        get_qdrant_client().delete(
+            collection_name=settings.qdrant_collection_name,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="metadata.conversation_id",
+                        match=MatchValue(value=conversation_id),
+                    ),
+                    FieldCondition(
+                        key="metadata.document_id",
+                        match=MatchValue(value=document.vector_document_id),
+                    ),
+                ]
+            ),
+            wait=True,
+        )
+        repository.delete(document)
 
-    client.delete(
-        collection_name=settings.qdrant_collection_name,
-        points_selector=Filter(
-            must=[
-                FieldCondition(
-                    key="metadata.filename",
-                    match=MatchValue(value=filename),
-                )
-            ]
-        ),
-        wait=True,
-    )
-
-    return f"Deleted '{filename}'"
+    return f"Deleted '{filename}' from conversation {conversation_id}."

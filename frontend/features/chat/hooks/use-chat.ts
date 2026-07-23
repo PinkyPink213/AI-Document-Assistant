@@ -51,6 +51,10 @@ export function useChat(conversationId: number | null) {
     () => (conversationId ? (messagesByConversation[conversationId] ?? []) : []),
     [conversationId, messagesByConversation],
   );
+  const approvalMessage = useMemo(
+    () => [...messages].reverse().find((message) => Boolean(message.interrupt)),
+    [messages],
+  );
   const historyQuery = useQuery({
     queryKey: conversationId ? chatKeys.history(conversationId) : ["chat", "history", "empty"],
     queryFn: () => getChatHistory(Number(conversationId)),
@@ -89,7 +93,7 @@ export function useChat(conversationId: number | null) {
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (!conversationId) return;
+      if (!conversationId || approvalMessage) return;
       const trimmed = content.trim();
       if (!trimmed) return;
 
@@ -106,7 +110,9 @@ export function useChat(conversationId: number | null) {
           updateMessage,
         );
         updateMessage(conversationId, pendingAssistant.id, { interrupt: response.interrupt });
-        await queryClient.invalidateQueries({ queryKey: chatKeys.history(conversationId) });
+        if (!response.interrupt) {
+          await queryClient.invalidateQueries({ queryKey: chatKeys.history(conversationId) });
+        }
       } catch (error) {
         const failure = toApiFailure(error);
         updateMessage(conversationId, pendingAssistant.id, {
@@ -116,12 +122,23 @@ export function useChat(conversationId: number | null) {
         });
       }
     },
-    [appendMessage, chatMutation, conversationId, queryClient, updateMessage],
+    [
+      appendMessage,
+      approvalMessage,
+      chatMutation,
+      conversationId,
+      queryClient,
+      updateMessage,
+    ],
   );
 
   const continueResponse = useCallback(
     async (decision: "approve" | "reject" = "approve") => {
       if (!conversationId) return;
+      const interruptedMessage = approvalMessage;
+      if (interruptedMessage) {
+        updateMessage(conversationId, interruptedMessage.id, { interrupt: null });
+      }
       const pendingAssistant = { ...createMessage(conversationId, "assistant", ""), pending: true };
       appendMessage(conversationId, pendingAssistant);
 
@@ -136,13 +153,25 @@ export function useChat(conversationId: number | null) {
         updateMessage(conversationId, pendingAssistant.id, { interrupt: response.interrupt });
         await queryClient.invalidateQueries({ queryKey: chatKeys.history(conversationId) });
       } catch (error) {
+        if (interruptedMessage) {
+          updateMessage(conversationId, interruptedMessage.id, {
+            interrupt: interruptedMessage.interrupt,
+          });
+        }
         updateMessage(conversationId, pendingAssistant.id, {
           pending: false,
           error: toApiFailure(error).message,
         });
       }
     },
-    [appendMessage, conversationId, queryClient, resumeMutation, updateMessage],
+    [
+      appendMessage,
+      approvalMessage,
+      conversationId,
+      queryClient,
+      resumeMutation,
+      updateMessage,
+    ],
   );
 
   return {
@@ -150,6 +179,7 @@ export function useChat(conversationId: number | null) {
     sendMessage,
     continueResponse,
     isSending: chatMutation.isPending || resumeMutation.isPending,
+    isAwaitingApproval: Boolean(approvalMessage),
     isLoadingHistory: historyQuery.isLoading,
     historyError: historyQuery.error,
     retryHistory: historyQuery.refetch,

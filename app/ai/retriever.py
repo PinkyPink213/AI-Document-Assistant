@@ -1,16 +1,23 @@
 import re
 from pathlib import Path
 
-from langchain_classic.retrievers import MultiQueryRetriever
+from langchain_core.documents import Document as LangChainDocument
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 from sqlmodel import Session, select
 
 from app.ai.embeddings import get_embeddings
 from app.ai.llm import get_llm
-from app.ai.prompts import build_multi_query_prompt
 from app.ai.vectorstore import get_qdrant_client, get_vectorstore
 from app.db.database import engine
 from app.models import Document
+
+
+class RerankSelection(BaseModel):
+    chunk_ids: list[int] = Field(
+        description="Candidate chunk IDs ordered from most to least relevant."
+    )
 
 
 def list_conversation_filenames(conversation_id: int) -> list[str]:
@@ -57,6 +64,67 @@ def build_document_filter(conversation_id: int, filename: str | None = None) -> 
     return Filter(must=conditions)
 
 
+def rerank_documents(
+    question: str,
+    documents: list[LangChainDocument],
+    limit: int = 6,
+) -> list[LangChainDocument]:
+    if len(documents) <= limit:
+        return documents
+
+    candidates = "\n\n".join(
+        (
+            f"CHUNK {index}\n"
+            f"File: {document.metadata.get('filename', 'unknown')}\n"
+            f"Page: {document.metadata.get('page', 'unknown')}\n"
+            f"Content:\n{document.page_content}"
+        )
+        for index, document in enumerate(documents)
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "Rank document chunks by their usefulness for answering the question. "
+                "Prioritize direct evidence, exact facts, and complete context. "
+                "Return only unique candidate chunk IDs, best first.",
+            ),
+            ("human", "Question:\n{question}\n\nCandidates:\n{candidates}"),
+        ]
+    )
+
+    try:
+        reranker = get_llm().with_structured_output(RerankSelection)
+        selection = reranker.invoke(
+            prompt.invoke({"question": question, "candidates": candidates})
+        )
+        selected_ids: list[int] = []
+        for chunk_id in selection.chunk_ids:
+            if 0 <= chunk_id < len(documents) and chunk_id not in selected_ids:
+                selected_ids.append(chunk_id)
+            if len(selected_ids) == limit:
+                break
+        for chunk_id in range(len(documents)):
+            if len(selected_ids) == limit:
+                break
+            if chunk_id not in selected_ids:
+                selected_ids.append(chunk_id)
+        return [documents[chunk_id] for chunk_id in selected_ids]
+    except Exception:
+        return documents[:limit]
+
+
+def format_cited_context(documents: list[LangChainDocument]) -> str:
+    sections = []
+    for index, document in enumerate(documents, start=1):
+        filename = document.metadata.get("filename", "unknown")
+        page = document.metadata.get("page", "unknown")
+        sections.append(
+            f"[SOURCE {index}: {filename}, page {page}]\n{document.page_content}"
+        )
+    return "\n\n".join(sections)
+
+
 def retrieve_documents(question: str, conversation_id: int) -> str:
     client = get_qdrant_client()
     filenames = list_conversation_filenames(conversation_id)
@@ -64,19 +132,15 @@ def retrieve_documents(question: str, conversation_id: int) -> str:
     vector_store = get_vectorstore(client, get_embeddings())
     retriever = vector_store.as_retriever(
         search_kwargs={
-            "k": 5,
+            "k": 20,
             "filter": build_document_filter(conversation_id, filename),
         }
     )
-    multi_query_retriever = MultiQueryRetriever.from_llm(
-        retriever=retriever,
-        llm=get_llm(),
-        prompt=build_multi_query_prompt(),
-    )
-    documents = multi_query_retriever.invoke(question)
+    candidates = retriever.invoke(question)
 
-    if not documents:
+    if not candidates:
         scope = f"'{filename}'" if filename else "this conversation's uploaded documents"
         return f"No relevant content was found in {scope}."
 
-    return "\n\n".join(document.page_content for document in documents)
+    documents = rerank_documents(question, candidates, limit=6)
+    return format_cited_context(documents)

@@ -34,5 +34,5 @@ export async function updateConversation(
 }
 
 export async function deleteConversation(conversationId: number) {
-  await api.delete<void>(`/conversation/${conversationId}`);
+  await api.delete<void>(`/conversation/${conversationId}`, { timeout: 120_000 });
 }

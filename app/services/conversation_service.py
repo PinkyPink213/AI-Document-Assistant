@@ -1,10 +1,21 @@
 from app.schemas import ConversationCreate, ConversationResponse, ConversationUpdate
 from app.models.conversation import Conversation
 from app.repositories.conversation_repository import ConversationRepository 
+from app.repositories.document_repository import DocumentRepository
+from app.core.config.settings import settings
 from fastapi import HTTPException
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
 class ConversationService:
-    def __init__(self,repository: ConversationRepository):
+    def __init__(
+        self,
+        repository: ConversationRepository,
+        document_repository: DocumentRepository,
+        qdrant_client,
+    ):
         self.repository = repository
+        self.document_repository = document_repository
+        self.qdrant_client = qdrant_client
     
     def create(self, request: ConversationCreate) -> ConversationResponse:
         """
@@ -67,4 +78,17 @@ class ConversationService:
                 detail="Conversation not found",
             )
 
-        self.repository.delete(conversation)     
+        self.qdrant_client.delete(
+            collection_name=settings.qdrant_collection_name,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="metadata.conversation_id",
+                        match=MatchValue(value=conversation_id),
+                    )
+                ]
+            ),
+            wait=True,
+        )
+        self.document_repository.delete_by_conversation_id(conversation_id)
+        self.repository.delete(conversation)

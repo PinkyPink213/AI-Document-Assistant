@@ -1,4 +1,11 @@
-from app.ai.retriever import build_document_filter, resolve_mentioned_filename
+from langchain_core.documents import Document
+
+from app.ai.retriever import (
+    build_document_filter,
+    format_cited_context,
+    resolve_mentioned_filename,
+)
+from app.services.agent_service import ensure_source_citations, get_pending_interrupt
 
 
 def test_routes_named_file_to_filename_filter():
@@ -37,3 +44,43 @@ def test_routes_unknown_file_question_to_conversation_filter():
     assert len(retrieval_filter.must) == 1
     assert retrieval_filter.must[0].key == "metadata.conversation_id"
     assert retrieval_filter.must[0].match.value == 4
+
+
+def test_formats_retrieved_chunks_with_source_markers():
+    context = format_cited_context(
+        [
+            Document(
+                page_content="Revenue increased by 12%.",
+                metadata={"filename": "annual-report.pdf", "page": 14},
+            )
+        ]
+    )
+
+    assert context == (
+        "[SOURCE 1: annual-report.pdf, page 14]\nRevenue increased by 12%."
+    )
+
+
+def test_appends_sources_when_model_omits_citations():
+    class ToolMessage:
+        type = "tool"
+        content = "[SOURCE 1: annual-report.pdf, page 14]\nEvidence"
+
+    answer = ensure_source_citations("Revenue increased.", [ToolMessage()])
+
+    assert answer.endswith("**Sources**\n- [annual-report.pdf, p. 14]")
+
+
+def test_finds_pending_human_interrupt_in_agent_state():
+    class Interrupt:
+        value = {"action_requests": [{"name": "delete_document"}]}
+
+    class Task:
+        interrupts = (Interrupt(),)
+
+    class State:
+        tasks = (Task(),)
+
+    assert get_pending_interrupt(State()) == {
+        "action_requests": [{"name": "delete_document"}]
+    }

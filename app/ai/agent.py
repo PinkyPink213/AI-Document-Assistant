@@ -1,20 +1,17 @@
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
-from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import Command
 
-
-from app.core.config  import settings
+from app.core.config import settings
 from app.ai import (
     list_uploaded_documents,
     count_uploaded_documents,
     count_pdf_pages,
     search_documents,
+    search_academic_papers,
     delete_document,
     build_agent_prompt,
     get_human_in_the_loop,
-
 )
 
 
@@ -32,14 +29,13 @@ THREAD_CONFIG = {
 }
 
 def get_tools():
-
     return [
         list_uploaded_documents,
         count_uploaded_documents,
         count_pdf_pages,
         search_documents,
+        search_academic_papers,
         delete_document,
-        
     ]
 
 
@@ -64,5 +60,6 @@ def build_agent():
         checkpointer=InMemorySaver(),
         name="pdf_assistant",
     )
-    
+
+
 agent = build_agent()
