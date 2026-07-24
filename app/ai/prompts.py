@@ -62,7 +62,8 @@ def build_agent_prompt():
             - If search_documents reports that no supporting information was
               found, do not answer from general model knowledge or prior chat
               history. Clearly say that the current uploaded documents do not
-              contain the requested information.
+              contain the requested information. Do not include citations or a
+              Sources section because no retrieved chunk supports the answer.
             - When the user asks to find, recommend, or discover external papers,
               related work, literature, or conference papers, use
               search_academic_papers.

@@ -37,6 +37,19 @@ NO_CURRENT_DOCUMENT_INFORMATION = (
     "uploaded to this conversation. Please upload the relevant PDF or ask "
     "a question about one of the available documents."
 )
+NO_EVIDENCE_PATTERNS = (
+    "do not contain information",
+    "does not contain information",
+    "did not find supporting information",
+    "could not find supporting information",
+    "couldn't find supporting information",
+    "no supporting information was found",
+    "no relevant content was found",
+)
+SOURCES_SECTION_PATTERN = re.compile(
+    r"\n+\*{0,2}sources\*{0,2}\s*\n.*\Z",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class ConversationNotFoundError(LookupError):
@@ -108,6 +121,10 @@ def has_document_citation(response: str, filename: str, page: str) -> bool:
 
 
 def ensure_source_citations(response: str, messages: list) -> str:
+    normalized_response = " ".join(response.casefold().split())
+    if any(pattern in normalized_response for pattern in NO_EVIDENCE_PATTERNS):
+        return SOURCES_SECTION_PATTERN.sub("", response).rstrip()
+
     sources: list[tuple[str, str]] = []
     for message in current_turn_messages(messages):
         if getattr(message, "type", None) != "tool":

@@ -135,6 +135,31 @@ def test_appends_only_document_sources_missing_from_inline_citation():
     assert "- [report.pdf, p. 1]" not in answer
 
 
+def test_omits_sources_when_documents_do_not_contain_the_answer():
+    class ToolMessage:
+        type = "tool"
+        content = "\n".join(
+            [
+                "[SOURCE 1: attention.pdf, page 1]",
+                "[SOURCE 2: attention.pdf, page 15]",
+            ]
+        )
+
+    response = (
+        "The current uploaded documents do not contain information about "
+        "what TimeLens2 is.\n\n"
+        "**Sources**\n"
+        "- [attention.pdf, p. 1]\n"
+        "- [attention.pdf, p. 15]"
+    )
+
+    answer = ensure_source_citations(response, [ToolMessage()])
+
+    assert answer.endswith("what TimeLens2 is.")
+    assert "Sources" not in answer
+    assert "attention.pdf" not in answer
+
+
 def test_calculates_document_and_academic_citation_coverage():
     class ToolMessage:
         type = "tool"
