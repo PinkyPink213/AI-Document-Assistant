@@ -98,7 +98,7 @@ The backend follows a layered architecture:
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 20+ and npm
+- Node.js 24.x and npm
 - Docker with Docker Compose (recommended), or separate PostgreSQL and Qdrant instances
 - OpenAI API key
 
