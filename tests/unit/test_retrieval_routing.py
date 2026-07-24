@@ -10,6 +10,7 @@ from app.services.agent_service import (
     ensure_academic_citations,
     ensure_source_citations,
     get_pending_interrupt,
+    has_document_citation,
 )
 
 
@@ -74,6 +75,47 @@ def test_appends_sources_when_model_omits_citations():
     answer = ensure_source_citations("Revenue increased.", [ToolMessage()])
 
     assert answer.endswith("**Sources**\n- [annual-report.pdf, p. 14]")
+
+
+def test_does_not_duplicate_grouped_inline_page_citations():
+    class ToolMessage:
+        type = "tool"
+        content = "\n".join(
+            [
+                "[SOURCE 1: timelen2.pdf, page 1]",
+                "[SOURCE 2: timelen2.pdf, page 2]",
+                "[SOURCE 3: timelen2.pdf, page 5]",
+                "[SOURCE 4: timelen2.pdf, page 19]",
+            ]
+        )
+
+    response = (
+        "The report describes the architecture "
+        "[timelen2.pdf, pages 1-2, 5, 7, 9, 19]."
+    )
+
+    assert ensure_source_citations(response, [ToolMessage()]) == response
+    assert has_document_citation(response, "timelen2.pdf", "2")
+    assert has_document_citation(response, "timelen2.pdf", "19")
+
+
+def test_appends_only_document_sources_missing_from_inline_citation():
+    class ToolMessage:
+        type = "tool"
+        content = "\n".join(
+            [
+                "[SOURCE 1: report.pdf, page 1]",
+                "[SOURCE 2: report.pdf, page 3]",
+            ]
+        )
+
+    answer = ensure_source_citations(
+        "Summary [report.pdf, page 1].",
+        [ToolMessage()],
+    )
+
+    assert answer.endswith("**Sources**\n- [report.pdf, p. 3]")
+    assert "- [report.pdf, p. 1]" not in answer
 
 
 def test_calculates_document_and_academic_citation_coverage():

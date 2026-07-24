@@ -63,6 +63,36 @@ def current_turn_messages(messages: list) -> list:
     return messages
 
 
+def has_document_citation(response: str, filename: str, page: str) -> bool:
+    """Recognize individual and grouped page citations for one document."""
+    citation_pattern = re.compile(
+        rf"\[{re.escape(filename.strip())},\s*"
+        rf"(?:p(?:age|ages)?\.?)\s*([^\]]+)\]",
+        re.IGNORECASE,
+    )
+    requested_page = page.strip()
+    if not requested_page.isdigit():
+        return any(
+            requested_page.casefold() in page_expression.casefold()
+            for page_expression in citation_pattern.findall(response)
+        )
+
+    requested_number = int(requested_page)
+    for page_expression in citation_pattern.findall(response):
+        for start, end in re.findall(
+            r"(\d+)(?:\s*[-–]\s*(\d+))?",
+            page_expression,
+        ):
+            range_start = int(start)
+            range_end = int(end or start)
+            if min(range_start, range_end) <= requested_number <= max(
+                range_start,
+                range_end,
+            ):
+                return True
+    return False
+
+
 def ensure_source_citations(response: str, messages: list) -> str:
     sources: list[tuple[str, str]] = []
     for message in current_turn_messages(messages):
@@ -74,11 +104,19 @@ def ensure_source_citations(response: str, messages: list) -> str:
             if source not in sources:
                 sources.append(source)
 
-    if not sources or re.search(r"\[[^\]]+,\s*p\.\s*[^\]]+\]", response):
+    if not sources:
+        return response
+
+    missing_sources = [
+        (filename, page)
+        for filename, page in sources
+        if not has_document_citation(response, filename, page)
+    ]
+    if not missing_sources:
         return response
 
     source_list = "\n".join(
-        f"- [{filename}, p. {page}]" for filename, page in sources
+        f"- [{filename}, p. {page}]" for filename, page in missing_sources
     )
     return f"{response.rstrip()}\n\n**Sources**\n{source_list}"
 
@@ -138,12 +176,7 @@ def citation_coverage(response: str, messages: list) -> dict[str, float | int]:
         for filename, page in SOURCE_PATTERN.findall(content):
             key = f"document:{filename.strip()}:{page.strip()}"
             expected.add(key)
-            if re.search(
-                rf"\[{re.escape(filename.strip())},\s*p\.\s*"
-                rf"{re.escape(page.strip())}\]",
-                response,
-                re.IGNORECASE,
-            ):
+            if has_document_citation(response, filename, page):
                 cited.add(key)
         for title, url in ACADEMIC_SOURCE_PATTERN.findall(content):
             key = f"academic:{title.strip()}:{url.strip()}"
