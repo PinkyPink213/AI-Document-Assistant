@@ -11,6 +11,9 @@ import type { ChatMessage } from "@/features/chat/types/chat";
 import { toApiFailure } from "@/services/api";
 import { documentKeys } from "@/features/documents/api/document-api";
 import type { DocumentResource } from "@/features/documents/types/document";
+import { conversationKeys } from "@/features/conversation/api/conversation-api";
+import { useAppStore } from "@/store/use-app-store";
+import { useToast } from "@/components/ui/toast";
 
 function createMessage(
   conversationId: number,
@@ -71,10 +74,13 @@ async function revealResponse(
 
 export function useChat(conversationId: number | null) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const setCurrentConversationId = useAppStore((state) => state.setCurrentConversationId);
   const messagesByConversation = useChatStore((state) => state.messagesByConversation);
   const setMessages = useChatStore((state) => state.setMessages);
   const appendMessage = useChatStore((state) => state.appendMessage);
   const updateMessage = useChatStore((state) => state.updateMessage);
+  const clearConversation = useChatStore((state) => state.clearConversation);
   const messages = useMemo(
     () => (conversationId ? (messagesByConversation[conversationId] ?? []) : []),
     [conversationId, messagesByConversation],
@@ -102,6 +108,28 @@ export function useChat(conversationId: number | null) {
       })),
     );
   }, [conversationId, historyQuery.data, setMessages]);
+
+  useEffect(() => {
+    if (!conversationId || !historyQuery.error) return;
+    const failure = toApiFailure(historyQuery.error);
+    if (failure.status !== 404) return;
+
+    clearConversation(conversationId);
+    setCurrentConversationId(null);
+    void queryClient.invalidateQueries({ queryKey: conversationKeys.all });
+    toast({
+      title: "Conversation no longer available",
+      description: "It may have been deleted. Select or create another conversation.",
+      tone: "error",
+    });
+  }, [
+    clearConversation,
+    conversationId,
+    historyQuery.error,
+    queryClient,
+    setCurrentConversationId,
+    toast,
+  ]);
 
   const chatMutation = useMutation({
     mutationFn: ({ id, message }: { id: number; message: string }) => sendChatMessage(id, message),
@@ -150,6 +178,17 @@ export function useChat(conversationId: number | null) {
         }
       } catch (error) {
         const failure = toApiFailure(error);
+        if (failure.status === 404) {
+          clearConversation(conversationId);
+          setCurrentConversationId(null);
+          await queryClient.invalidateQueries({ queryKey: conversationKeys.all });
+          toast({
+            title: "Conversation no longer available",
+            description: "It may have been deleted. Select or create another conversation.",
+            tone: "error",
+          });
+          return;
+        }
         updateMessage(conversationId, pendingAssistant.id, {
           content: "",
           pending: false,
@@ -161,8 +200,11 @@ export function useChat(conversationId: number | null) {
       appendMessage,
       approvalMessage,
       chatMutation,
+      clearConversation,
       conversationId,
       queryClient,
+      setCurrentConversationId,
+      toast,
       updateMessage,
     ],
   );

@@ -6,6 +6,8 @@ from app.ai.retriever import (
     resolve_mentioned_filename,
 )
 from app.services.agent_service import (
+    AgentService,
+    ConversationNotFoundError,
     citation_coverage,
     ensure_academic_citations,
     ensure_source_citations,
@@ -13,6 +15,7 @@ from app.services.agent_service import (
     has_document_citation,
     reject_deleted_document_citations,
 )
+import pytest
 
 
 def test_routes_named_file_to_filename_filter():
@@ -215,3 +218,22 @@ def test_keeps_answer_citing_an_active_document():
         reject_deleted_document_citations(response, ["timelen2.pdf"])
         == response
     )
+
+
+def test_agent_service_rejects_a_deleted_conversation():
+    class MissingConversationRepository:
+        def get_by_id(self, conversation_id):
+            return None
+
+    service = AgentService(
+        message_repository=None,
+        agent=None,
+        delete_document_workflow=None,
+        conversation_repository=MissingConversationRepository(),
+    )
+
+    with pytest.raises(
+        ConversationNotFoundError,
+        match="Conversation 11 no longer exists",
+    ):
+        service.ensure_conversation_exists(11)

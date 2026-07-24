@@ -44,6 +44,7 @@ def get_agent_service(
         ChatMessageRepository(session),
         request.app.state.agent,
         request.app.state.delete_document_workflow,
+        ConversationRepository(session),
     )
 
 def get_document_service(

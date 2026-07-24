@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ToastProvider } from "@/components/ui/toast";
 import { useChat } from "@/features/chat/hooks/use-chat";
 import { server } from "@/test/server";
+import { useAppStore } from "@/store/use-app-store";
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -73,5 +74,23 @@ describe("useChat", () => {
     });
 
     expect(chatCalls).toBe(1);
+  });
+
+  it("clears a stale selected conversation after a 404 response", async () => {
+    useAppStore.getState().setCurrentConversationId(404);
+    server.use(
+      http.get("http://127.0.0.1:8000/conversations/404/messages", () =>
+        HttpResponse.json(
+          { detail: "Conversation 404 no longer exists." },
+          { status: 404 },
+        ),
+      ),
+    );
+
+    renderHook(() => useChat(404), { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(useAppStore.getState().currentConversationId).toBeNull(),
+    );
   });
 });

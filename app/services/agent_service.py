@@ -10,7 +10,7 @@ from app.core.observability import (
     LangSmithMetricsCallback,
     request_id_context,
 )
-from app.repositories import ChatMessageRepository
+from app.repositories import ChatMessageRepository, ConversationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,10 @@ NO_CURRENT_DOCUMENT_INFORMATION = (
     "uploaded to this conversation. Please upload the relevant PDF or ask "
     "a question about one of the available documents."
 )
+
+
+class ConversationNotFoundError(LookupError):
+    pass
 
 
 def delete_workflow_thread_id(conversation_id: int) -> str:
@@ -237,12 +241,21 @@ class AgentService:
         message_repository: ChatMessageRepository,
         agent,
         delete_document_workflow,
+        conversation_repository: ConversationRepository,
     ):
         self.agent = agent
         self.delete_document_workflow = delete_document_workflow
         self.message_repository = message_repository
+        self.conversation_repository = conversation_repository
+
+    def ensure_conversation_exists(self, conversation_id: int) -> None:
+        if self.conversation_repository.get_by_id(conversation_id) is None:
+            raise ConversationNotFoundError(
+                f"Conversation {conversation_id} no longer exists."
+            )
 
     def list_messages(self, conversation_id: int):
+        self.ensure_conversation_exists(conversation_id)
         return self.message_repository.list_by_conversation(conversation_id)
 
     async def chat(
@@ -253,6 +266,7 @@ class AgentService:
         """
         Send a user message to the agent.
         """
+        self.ensure_conversation_exists(conversation_id)
         thread_id = str(conversation_id)
         callback = LangSmithMetricsCallback()
         trace_metadata = {
@@ -418,6 +432,7 @@ class AgentService:
             approve
             reject
         """
+        self.ensure_conversation_exists(conversation_id)
         thread_id = str(conversation_id)
         
         logger.info(
