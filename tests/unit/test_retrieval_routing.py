@@ -85,14 +85,15 @@ def test_formats_retrieved_chunks_with_source_markers():
     )
 
 
-def test_appends_sources_when_model_omits_citations():
+def test_does_not_append_a_separate_sources_section():
     class ToolMessage:
         type = "tool"
         content = "[SOURCE 1: annual-report.pdf, page 14]\nEvidence"
 
     answer = ensure_source_citations("Revenue increased.", [ToolMessage()])
 
-    assert answer.endswith("**Sources**\n- [annual-report.pdf, p. 14]")
+    assert answer == "Revenue increased."
+    assert "Sources" not in answer
 
 
 def test_does_not_duplicate_grouped_inline_page_citations():
@@ -117,7 +118,7 @@ def test_does_not_duplicate_grouped_inline_page_citations():
     assert has_document_citation(response, "timelen2.pdf", "19")
 
 
-def test_appends_only_document_sources_missing_from_inline_citation():
+def test_keeps_inline_citation_without_appending_missing_candidates():
     class ToolMessage:
         type = "tool"
         content = "\n".join(
@@ -132,8 +133,24 @@ def test_appends_only_document_sources_missing_from_inline_citation():
         [ToolMessage()],
     )
 
-    assert answer.endswith("**Sources**\n- [report.pdf, p. 3]")
-    assert "- [report.pdf, p. 1]" not in answer
+    assert answer == "Summary [report.pdf, page 1]."
+    assert "Sources" not in answer
+
+
+def test_removes_model_generated_sources_section_from_grounded_answer():
+    class ToolMessage:
+        type = "tool"
+        content = "[SOURCE 1: attention.pdf, page 1]\nEvidence"
+
+    response = (
+        "Transformers use self-attention [attention.pdf, p. 1].\n\n"
+        "**Sources**\n"
+        "- [attention.pdf, p. 1]"
+    )
+
+    answer = ensure_source_citations(response, [ToolMessage()])
+
+    assert answer == "Transformers use self-attention [attention.pdf, p. 1]."
 
 
 def test_omits_sources_when_documents_do_not_contain_the_answer():

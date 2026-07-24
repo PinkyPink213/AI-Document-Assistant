@@ -230,35 +230,15 @@ def has_document_citation(response: str, filename: str, page: str) -> bool:
 
 
 def ensure_source_citations(response: str, messages: list) -> str:
+    # Document citations must stay inline. Never render a duplicate trailing
+    # Sources section, including one generated directly by the model.
+    _ = messages
+    response = SOURCES_SECTION_PATTERN.sub("", response).rstrip()
     normalized_response = " ".join(response.casefold().split())
     if any(pattern in normalized_response for pattern in NO_EVIDENCE_PATTERNS):
-        return SOURCES_SECTION_PATTERN.sub("", response).rstrip()
-
-    sources: list[tuple[str, str]] = []
-    for message in current_turn_messages(messages):
-        if getattr(message, "type", None) != "tool":
-            continue
-        content = str(getattr(message, "content", ""))
-        for filename, page in SOURCE_PATTERN.findall(content):
-            source = (filename.strip(), page.strip())
-            if source not in sources:
-                sources.append(source)
-
-    if not sources:
         return response
 
-    missing_sources = [
-        (filename, page)
-        for filename, page in sources
-        if not has_document_citation(response, filename, page)
-    ]
-    if not missing_sources:
-        return response
-
-    source_list = "\n".join(
-        f"- [{filename}, p. {page}]" for filename, page in missing_sources
-    )
-    return f"{response.rstrip()}\n\n**Sources**\n{source_list}"
+    return response
 
 
 def reject_deleted_document_citations(

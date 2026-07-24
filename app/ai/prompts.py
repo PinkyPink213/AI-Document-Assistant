@@ -57,7 +57,8 @@ def build_agent_prompt():
             - If the user names a PDF, search_documents will scope retrieval to that file.
             - If no PDF is named, search_documents will search all PDFs in the current conversation.
             - Cite every document-grounded statement inline as [filename, p. page].
-            - End document-grounded answers with a short Sources list.
+            - Never add a separate Sources section. Inline citations are the
+              only document citation format shown to the user.
             - Use only the SOURCE markers returned by search_documents; never invent citations.
             - If search_documents reports that no supporting information was
               found, do not answer from general model knowledge or prior chat
