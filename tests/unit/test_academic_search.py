@@ -129,7 +129,9 @@ async def test_academic_tool_calls_mcp_with_conference_filter(monkeypatch):
         }
     )
 
-    assert calls[0]["publication_types"] == "Conference"
+    assert calls[0]["provider"] == "crossref"
+    assert calls[0]["publication_types"] == "proceedings-article"
+    assert calls[0]["max_retrieval"] == 30
     assert calls[0]["limit"] == 3
     assert PAPER["title"] in result
 

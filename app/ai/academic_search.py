@@ -138,7 +138,7 @@ async def search_academic_papers(
     limit: int = 5,
     provider: Literal[
         "semantic_scholar", "crossref", "openalex", "pubmed"
-    ] = "semantic_scholar",
+    ] = "crossref",
 ) -> str:
     """Search external scholarly databases for paper recommendations.
 
@@ -149,24 +149,29 @@ async def search_academic_papers(
     """
     safe_limit = max(1, min(limit, 8))
     try:
-        async with asyncio.timeout(35):
+        async with asyncio.timeout(20):
             client = _academic_client()
             tools = await client.get_tools(server_name=ACADEMIC_SERVER_NAME)
             mcp_search = next(
                 tool for tool in tools if tool.name == ACADEMIC_SEARCH_TOOL_NAME
             )
+            publication_type = None
+            if conference_only:
+                publication_type = (
+                    "proceedings-article"
+                    if provider == "crossref"
+                    else "Conference"
+                )
             result = await mcp_search.ainvoke(
                 {
                     "query": query,
                     "limit": safe_limit,
-                    "max_retrieval": max(50, safe_limit * 20),
+                    "max_retrieval": max(20, safe_limit * 10),
                     "provider": provider,
-                    "publication_types": (
-                        "Conference" if conference_only else None
-                    ),
+                    "publication_types": publication_type,
                     "year_min": year_min,
                     "year_max": year_max,
-                    "has_abstract": True,
+                    "has_abstract": None,
                 }
             )
             return format_academic_results(_decode_mcp_result(result))

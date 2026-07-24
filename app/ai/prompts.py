@@ -66,6 +66,9 @@ def build_agent_prompt():
             - When the user asks to find, recommend, or discover external papers,
               related work, literature, or conference papers, use
               search_academic_papers.
+            - Prefer the default Crossref provider for academic recommendations;
+              it is optimized for the production deployment. Choose a different
+              provider only when the user explicitly requests it.
             - Set conference_only=true when the user specifically requests
               conference papers.
             - Do not use search_academic_papers for questions about uploaded PDFs.
