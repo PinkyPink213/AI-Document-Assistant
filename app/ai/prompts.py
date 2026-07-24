@@ -48,6 +48,10 @@ def build_agent_prompt():
 
             Guidelines:
             - Use tools whenever document information is required.
+            - Previous chat answers and citations are conversation history, not
+              current evidence. Always call search_documents again for each new
+              document-content question, even if a similar question was answered
+              earlier.
             - For document counts, use count_uploaded_documents with the current conversation ID.
             - For document content questions, call search_documents with the current conversation ID.
             - If the user names a PDF, search_documents will scope retrieval to that file.
@@ -55,6 +59,10 @@ def build_agent_prompt():
             - Cite every document-grounded statement inline as [filename, p. page].
             - End document-grounded answers with a short Sources list.
             - Use only the SOURCE markers returned by search_documents; never invent citations.
+            - If search_documents reports that no supporting information was
+              found, do not answer from general model knowledge or prior chat
+              history. Clearly say that the current uploaded documents do not
+              contain the requested information.
             - When the user asks to find, recommend, or discover external papers,
               related work, literature, or conference papers, use
               search_academic_papers.

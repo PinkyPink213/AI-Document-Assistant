@@ -7,7 +7,7 @@ from langchain_core.documents import Document as LangChainDocument
 from langchain_core.prompts import ChatPromptTemplate
 from langsmith import traceable
 from pydantic import BaseModel, Field
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 from sqlmodel import Session, select
 
 from app.ai.embeddings import get_embeddings
@@ -35,6 +35,15 @@ def list_conversation_filenames(conversation_id: int) -> list[str]:
         return list(session.exec(statement).all())
 
 
+def list_conversation_vector_document_ids(conversation_id: int) -> list[str]:
+    """Return the Qdrant document IDs that are still active in PostgreSQL."""
+    with Session(engine) as session:
+        statement = select(Document.vector_document_id).where(
+            Document.conversation_id == conversation_id
+        )
+        return list(session.exec(statement).all())
+
+
 def resolve_mentioned_filename(question: str, filenames: list[str]) -> str | None:
     normalized_question = question.casefold()
     for filename in sorted(filenames, key=len, reverse=True):
@@ -51,7 +60,11 @@ def resolve_mentioned_filename(question: str, filenames: list[str]) -> str | Non
     return None
 
 
-def build_document_filter(conversation_id: int, filename: str | None = None) -> Filter:
+def build_document_filter(
+    conversation_id: int,
+    filename: str | None = None,
+    active_document_ids: list[str] | None = None,
+) -> Filter:
     conditions = [
         FieldCondition(
             key="metadata.conversation_id",
@@ -63,6 +76,13 @@ def build_document_filter(conversation_id: int, filename: str | None = None) -> 
             FieldCondition(
                 key="metadata.filename",
                 match=MatchValue(value=filename),
+            )
+        )
+    if active_document_ids is not None:
+        conditions.append(
+            FieldCondition(
+                key="metadata.document_id",
+                match=MatchAny(any=active_document_ids),
             )
         )
     return Filter(must=conditions)
@@ -134,12 +154,36 @@ def retrieve_documents(question: str, conversation_id: int) -> str:
     started = time.perf_counter()
     client = get_qdrant_client()
     filenames = list_conversation_filenames(conversation_id)
+    active_document_ids = list_conversation_vector_document_ids(conversation_id)
+    if not active_document_ids:
+        logger.info(
+            "Document retrieval completed",
+            extra={
+                "event": "retrieval.completed",
+                "retrieval_latency_ms": round(
+                    (time.perf_counter() - started) * 1000,
+                    2,
+                ),
+                "candidate_count": 0,
+                "selected_count": 0,
+                "filename_filter": None,
+            },
+        )
+        return (
+            "No documents are currently uploaded to this conversation, "
+            "so no supporting information was found."
+        )
+
     filename = resolve_mentioned_filename(question, filenames)
     vector_store = get_vectorstore(client, get_embeddings())
     retriever = vector_store.as_retriever(
         search_kwargs={
             "k": 20,
-            "filter": build_document_filter(conversation_id, filename),
+            "filter": build_document_filter(
+                conversation_id,
+                filename,
+                active_document_ids,
+            ),
         }
     )
     candidates = retriever.invoke(question)

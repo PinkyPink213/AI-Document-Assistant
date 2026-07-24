@@ -5,6 +5,7 @@ import time
 from langgraph.types import Command
 from langsmith import trace
 
+from app.ai.retriever import list_conversation_filenames
 from app.core.observability import (
     LangSmithMetricsCallback,
     request_id_context,
@@ -27,6 +28,15 @@ PDF_FILENAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 DELETE_KEYWORDS = ("delete", "remove", "ลบ")
+FINAL_DOCUMENT_CITATION_PATTERN = re.compile(
+    r"\[([^\]\n]+\.pdf),\s*p(?:age|ages)?\.?\s*[^\]]+\]",
+    re.IGNORECASE,
+)
+NO_CURRENT_DOCUMENT_INFORMATION = (
+    "I could not find supporting information in the documents currently "
+    "uploaded to this conversation. Please upload the relevant PDF or ask "
+    "a question about one of the available documents."
+)
 
 
 def delete_workflow_thread_id(conversation_id: int) -> str:
@@ -119,6 +129,28 @@ def ensure_source_citations(response: str, messages: list) -> str:
         f"- [{filename}, p. {page}]" for filename, page in missing_sources
     )
     return f"{response.rstrip()}\n\n**Sources**\n{source_list}"
+
+
+def reject_deleted_document_citations(
+    response: str,
+    active_filenames: list[str],
+) -> str:
+    """Prevent an answer from relying on a PDF no longer present in PostgreSQL."""
+    active = {filename.strip().casefold() for filename in active_filenames}
+    cited = {
+        filename.strip().casefold()
+        for filename in FINAL_DOCUMENT_CITATION_PATTERN.findall(response)
+    }
+    if cited and not cited.issubset(active):
+        logger.warning(
+            "Rejected answer containing citations to inactive documents",
+            extra={
+                "event": "agent.stale_document_citation",
+                "inactive_filenames": sorted(cited - active),
+            },
+        )
+        return NO_CURRENT_DOCUMENT_INFORMATION
+    return response
 
 
 def ensure_academic_citations(response: str, messages: list) -> str:
@@ -330,6 +362,10 @@ class AgentService:
             response = ensure_academic_citations(
                 response,
                 result.value["messages"],
+            )
+            response = reject_deleted_document_citations(
+                response,
+                list_conversation_filenames(conversation_id),
             )
             coverage = citation_coverage(
                 response,

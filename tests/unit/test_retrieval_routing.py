@@ -11,6 +11,7 @@ from app.services.agent_service import (
     ensure_source_citations,
     get_pending_interrupt,
     has_document_citation,
+    reject_deleted_document_citations,
 )
 
 
@@ -50,6 +51,19 @@ def test_routes_unknown_file_question_to_conversation_filter():
     assert len(retrieval_filter.must) == 1
     assert retrieval_filter.must[0].key == "metadata.conversation_id"
     assert retrieval_filter.must[0].match.value == 4
+
+
+def test_retrieval_filter_allows_only_active_postgres_documents():
+    retrieval_filter = build_document_filter(
+        4,
+        active_document_ids=["active-vector-id"],
+    )
+
+    assert [condition.key for condition in retrieval_filter.must] == [
+        "metadata.conversation_id",
+        "metadata.document_id",
+    ]
+    assert retrieval_filter.must[1].match.any == ["active-vector-id"]
 
 
 def test_formats_retrieved_chunks_with_source_markers():
@@ -176,4 +190,28 @@ def test_does_not_reuse_academic_sources_from_an_older_turn():
     assert (
         ensure_academic_citations("Approval is required.", messages)
         == "Approval is required."
+    )
+
+
+def test_rejects_answer_citing_a_deleted_document():
+    response = (
+        "Transformers use attention mechanisms "
+        "[attention.pdf, pages 1, 4]."
+    )
+
+    result = reject_deleted_document_citations(
+        response,
+        ["timelen2.pdf"],
+    )
+
+    assert "could not find supporting information" in result
+    assert "attention.pdf" not in result
+
+
+def test_keeps_answer_citing_an_active_document():
+    response = "The model uses temporal grounding [timelen2.pdf, p. 2]."
+
+    assert (
+        reject_deleted_document_citations(response, ["timelen2.pdf"])
+        == response
     )

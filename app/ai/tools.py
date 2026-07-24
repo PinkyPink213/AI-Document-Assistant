@@ -2,72 +2,37 @@ from langchain.tools import tool
 from app.ai import get_qdrant_client, retrieve_documents
 from app.core.config import settings
 from app.db.database import engine
+from app.models import Document
 from app.repositories import DocumentRepository
 from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
 )
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 @tool
 def list_uploaded_documents(conversation_id: int | None = None) -> list[str]:
     """
     Return uploaded PDF filenames, optionally limited to a conversation.
     """
-    client = get_qdrant_client()
-
-    filenames = set()
-
-    points, _ = client.scroll(
-        collection_name=settings.qdrant_collection_name,
-        with_payload=True,
-        with_vectors=False,
-        limit=1000,
-    )
-
-    for point in points:
-        payload = point.payload or {}
-        metadata = payload.get("metadata", {})
-        if (
-            conversation_id is not None
-            and metadata.get("conversation_id") != conversation_id
-        ):
-            continue
-
-        filename = metadata.get("filename")
-
-        if filename:
-            filenames.add(filename)
-
-    return sorted(filenames)
+    with Session(engine) as session:
+        statement = select(Document.filename).distinct().order_by(Document.filename)
+        if conversation_id is not None:
+            statement = statement.where(
+                Document.conversation_id == conversation_id
+            )
+        return list(session.exec(statement).all())
 
 
 @tool
 def count_uploaded_documents(conversation_id: int) -> int:
     """Return the number of distinct uploaded PDF records for a conversation."""
-    client = get_qdrant_client()
-    document_ids = set()
-    offset = None
-
-    while True:
-        points, offset = client.scroll(
-            collection_name=settings.qdrant_collection_name,
-            offset=offset,
-            with_payload=True,
-            with_vectors=False,
-            limit=256,
+    with Session(engine) as session:
+        statement = select(Document.id).where(
+            Document.conversation_id == conversation_id
         )
-        for point in points:
-            metadata = (point.payload or {}).get("metadata", {})
-            if metadata.get("conversation_id") == conversation_id:
-                document_id = metadata.get("document_id")
-                if document_id:
-                    document_ids.add(document_id)
-        if offset is None:
-            break
-
-    return len(document_ids)
+        return len(session.exec(statement).all())
 
 
 @tool
