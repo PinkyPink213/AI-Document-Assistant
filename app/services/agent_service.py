@@ -5,6 +5,7 @@ import time
 from langgraph.types import Command
 from langsmith import trace
 
+from app.ai.academic_search import search_academic_papers
 from app.ai.retriever import list_conversation_filenames
 from app.core.observability import (
     LangSmithMetricsCallback,
@@ -57,6 +58,25 @@ SOURCES_SECTION_PATTERN = re.compile(
     r"\n+\*{0,2}sources\*{0,2}\s*\n.*\Z",
     re.IGNORECASE | re.DOTALL,
 )
+ACADEMIC_FOLLOW_UP_PATTERN = re.compile(
+    r"^\s*(?:yes|yes please|please do|sure|okay|ok|"
+    r"could you (?:find|search)(?: it)? for me\??|"
+    r"(?:find|search) for me\??)\s*$",
+    re.IGNORECASE,
+)
+ACADEMIC_TOPIC_PATTERNS = (
+    re.compile(
+        r"\b(?:find|search|suggest|recommend|discover)\s+"
+        r"(?:for me\s+)?(.+?)\s+(?:papers?|publications?)"
+        r"(?:\s+for me)?(?:\s*[?.]|$)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:papers?|publications?|literature|research)\s+"
+        r"(?:about|on|related to)\s+(.+?)(?:[?.]|$)",
+        re.IGNORECASE,
+    ),
+)
 
 
 class ConversationNotFoundError(LookupError):
@@ -80,6 +100,84 @@ def extract_delete_filename(question: str) -> str | None:
 
 def is_academic_search_request(question: str) -> bool:
     return ACADEMIC_SEARCH_PATTERN.search(question) is not None
+
+
+def academic_search_query(question: str, history: list) -> str | None:
+    """Resolve explicit paper searches and affirmative academic follow-ups."""
+    if is_academic_search_request(question):
+        for pattern in ACADEMIC_TOPIC_PATTERNS:
+            match = pattern.search(question)
+            if match:
+                return match.group(1).strip(" .?")
+        return question.strip()
+
+    if not ACADEMIC_FOLLOW_UP_PATTERN.match(question):
+        return None
+
+    last_assistant = next(
+        (
+            message.content
+            for message in reversed(history)
+            if message.role == "assistant"
+        ),
+        "",
+    )
+    if "external academic" not in last_assistant.casefold():
+        return None
+
+    offered_topic = re.search(
+        r"(?:about|on)\s+([A-Za-z0-9][A-Za-z0-9_. -]*?)(?:[?.]|$)",
+        last_assistant,
+        re.IGNORECASE,
+    )
+    if offered_topic:
+        return offered_topic.group(1).strip(" .?")
+
+    previous_question = next(
+        (
+            message.content
+            for message in reversed(history)
+            if message.role == "user"
+        ),
+        "",
+    )
+    topic = re.sub(
+        r"^\s*(?:what|who)\s+is\s+",
+        "",
+        previous_question,
+        flags=re.IGNORECASE,
+    )
+    return topic.strip(" .?") or None
+
+
+def requested_paper_limit(question: str, default: int = 3) -> int:
+    match = re.search(r"\b([1-8])\s+(?:papers?|publications?)\b", question)
+    return int(match.group(1)) if match else default
+
+
+def format_direct_academic_response(tool_result: str, query: str) -> str:
+    """Render MCP results without allowing document-history hallucinations."""
+    normalized = tool_result.casefold()
+    if (
+        "no academic papers matched" in normalized
+        or "none included a usable source url" in normalized
+    ):
+        return f'No academic papers were found for "{query}".'
+    if "temporarily unavailable" in normalized:
+        return (
+            "The external academic search service is temporarily unavailable. "
+            "Please try again shortly."
+        )
+
+    matches = ACADEMIC_SOURCE_PATTERN.findall(tool_result)
+    if not matches:
+        return f'No academic papers were found for "{query}".'
+
+    items = [
+        f"{index}. [{title.strip()}]({url.strip()})"
+        for index, (title, url) in enumerate(matches, start=1)
+    ]
+    return "Here are the academic papers I found:\n\n" + "\n\n".join(items)
 
 
 def get_pending_interrupt(state) -> dict | None:
@@ -359,6 +457,28 @@ class AgentService:
             return {
                 "response": None,
                 "interrupt": interrupt_value,
+            }
+
+        external_query = academic_search_query(question, persisted_history)
+        if external_query:
+            tool_result = await search_academic_papers.ainvoke(
+                {
+                    "query": external_query,
+                    "conference_only": "conference" in question.casefold(),
+                    "limit": requested_paper_limit(question),
+                }
+            )
+            response = format_direct_academic_response(
+                str(tool_result),
+                external_query,
+            )
+            self.message_repository.create(
+                conversation_id,
+                "assistant",
+                response,
+            )
+            return {
+                "response": response,
             }
 
         checkpoint_messages = state.values.get("messages", {}) if state.values else {}

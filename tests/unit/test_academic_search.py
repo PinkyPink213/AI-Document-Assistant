@@ -8,7 +8,11 @@ from app.ai.academic_search import (
     format_academic_results,
     search_academic_papers,
 )
-from app.services.agent_service import ensure_academic_citations
+from app.services.agent_service import (
+    academic_search_query,
+    ensure_academic_citations,
+    format_direct_academic_response,
+)
 
 
 PAPER = {
@@ -101,6 +105,62 @@ def test_moves_generic_paper_link_onto_its_title():
         in answer
     )
     assert "Open paper" not in answer
+
+
+def test_formats_direct_mcp_results_as_clickable_titles_without_sources():
+    result = "\n\n".join(
+        [
+            "[ACADEMIC SOURCE 1: TimeLens Research | "
+            "https://doi.org/10.1000/one]\nTitle: TimeLens Research",
+            "[ACADEMIC SOURCE 2: Video Temporal Grounding | "
+            "https://doi.org/10.1000/two]\nTitle: Video Temporal Grounding",
+        ]
+    )
+
+    answer = format_direct_academic_response(result, "TimeLens2")
+
+    assert "[TimeLens Research](https://doi.org/10.1000/one)" in answer
+    assert "[Video Temporal Grounding](https://doi.org/10.1000/two)" in answer
+    assert "Sources" not in answer
+
+
+def test_direct_mcp_no_results_has_no_sources():
+    answer = format_direct_academic_response(
+        "No academic papers matched the requested topic and filters.",
+        "TimeLens2",
+    )
+
+    assert answer == 'No academic papers were found for "TimeLens2".'
+    assert "Sources" not in answer
+
+
+def test_resolves_academic_follow_up_from_previous_offer():
+    class Message:
+        def __init__(self, role, content):
+            self.role = role
+            self.content = content
+
+    history = [
+        Message("user", "What is TimeLens2?"),
+        Message(
+            "assistant",
+            "The uploaded documents do not contain that information. "
+            "I can find external academic papers about TimeLens2. "
+            "Would you like me to do that?",
+        ),
+    ]
+
+    assert academic_search_query("Could you find for me?", history) == "TimeLens2"
+
+
+def test_extracts_topic_from_explicit_paper_search():
+    assert (
+        academic_search_query(
+            "Could you search timelen2 paper for me?",
+            [],
+        )
+        == "timelen2"
+    )
 
 
 @pytest.mark.asyncio
