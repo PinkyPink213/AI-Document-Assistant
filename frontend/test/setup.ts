@@ -1,9 +1,21 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
+import { useChatStore } from "@/features/chat/hooks/use-chat-store";
+import { useAppStore } from "@/store/use-app-store";
 import { resetTestData, server } from "@/test/server";
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+beforeEach(() => {
+  localStorage.clear();
+  useAppStore.setState({
+    currentConversationId: null,
+    leftSidebarOpen: true,
+    rightSidebarOpen: true,
+    theme: "light",
+  });
+  useChatStore.setState({ messagesByConversation: {} });
+});
 afterEach(() => {
   cleanup();
   server.resetHandlers();
