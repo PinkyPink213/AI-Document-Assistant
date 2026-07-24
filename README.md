@@ -7,14 +7,27 @@
 [![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-DC244C?logo=qdrant&logoColor=white)](https://qdrant.tech/)
 [![Tests](https://img.shields.io/badge/tests-pytest%20%7C%20Vitest-brightgreen)](#testing)
 [![CI](https://github.com/PinkyPink213/AI-Document-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/PinkyPink213/AI-Document-Assistant/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_App-EC4899?logo=vercel&logoColor=white)](https://ai-document-assistant-mauve-one.vercel.app/)
 
 A full-stack, enterprise-style AI workspace for uploading PDFs, managing
 conversations, and asking document-grounded questions. The application combines
 conversation-scoped retrieval, AI tool calling, reranking, source citations,
 academic discovery through MCP, and human approval for destructive actions.
 
+**[🚀 Open the live demo](https://ai-document-assistant-mauve-one.vercel.app/)**
+
 > Built as a portfolio-ready reference for production-oriented RAG and agentic
 > application development.
+
+## 🖥️ Application Preview
+
+### Dark theme
+
+[![Enterprise AI Document Assistant — dark theme](img/app-dark-them.png)](https://ai-document-assistant-mauve-one.vercel.app/)
+
+### Light theme
+
+[![Enterprise AI Document Assistant — light theme](img/app-light-theme.png)](https://ai-document-assistant-mauve-one.vercel.app/)
 
 ## ✨ Key Features
 
