@@ -13,6 +13,7 @@ from app.services.agent_service import (
     ensure_source_citations,
     get_pending_interrupt,
     has_document_citation,
+    is_academic_search_request,
     reject_deleted_document_citations,
 )
 import pytest
@@ -262,3 +263,15 @@ def test_agent_service_rejects_a_deleted_conversation():
         match="Conversation 11 no longer exists",
     ):
         service.ensure_conversation_exists(11)
+
+
+def test_detects_explicit_external_paper_search():
+    assert is_academic_search_request(
+        "Could you search the TimeLens2 paper for me?"
+    )
+    assert is_academic_search_request(
+        "Suggest three publications about transformer forecasting"
+    )
+    assert not is_academic_search_request(
+        "What does attention.pdf say about transformers?"
+    )

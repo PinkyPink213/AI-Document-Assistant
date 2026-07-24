@@ -28,6 +28,13 @@ PDF_FILENAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 DELETE_KEYWORDS = ("delete", "remove", "ลบ")
+ACADEMIC_SEARCH_PATTERN = re.compile(
+    r"\b(?:find|search|suggest|recommend|discover)\b.*\b"
+    r"(?:paper|papers|publication|publications|literature|research)\b"
+    r"|\b(?:paper|papers|publication|publications|literature)\b.*\b"
+    r"(?:find|search|suggest|recommend|discover)\b",
+    re.IGNORECASE,
+)
 FINAL_DOCUMENT_CITATION_PATTERN = re.compile(
     r"\[([^\]\n]+\.pdf),\s*p(?:age|ages)?\.?\s*[^\]]+\]",
     re.IGNORECASE,
@@ -69,6 +76,10 @@ def extract_delete_filename(question: str) -> str | None:
     if not match:
         return None
     return next(value.strip() for value in match.groups() if value)
+
+
+def is_academic_search_request(question: str) -> bool:
+    return ACADEMIC_SEARCH_PATTERN.search(question) is not None
 
 
 def get_pending_interrupt(state) -> dict | None:
@@ -351,9 +362,26 @@ class AgentService:
             }
 
         checkpoint_messages = state.values.get("messages", {}) if state.values else {}
+        active_filenames = list_conversation_filenames(conversation_id)
+        active_files_text = (
+            ", ".join(active_filenames) if active_filenames else "none"
+        )
+        academic_instruction = (
+            "The user is explicitly requesting external academic paper search. "
+            "You MUST call search_academic_papers; do not search uploaded documents."
+            if is_academic_search_request(question)
+            else ""
+        )
         context_message = {
             "role": "system",
-            "content": f"The active conversation ID is {conversation_id}. Use it for document tools.",
+            "content": (
+                f"The active conversation ID is {conversation_id}. "
+                f"Currently uploaded PDFs: {active_files_text}. "
+                "Only these filenames are active; files mentioned solely in "
+                "earlier chat history may have been deleted. Use the current "
+                "list for document tools. "
+                f"{academic_instruction}"
+            ),
         }
         input_messages = [context_message, {"role": "user", "content": question}]
         if not checkpoint_messages and persisted_history:

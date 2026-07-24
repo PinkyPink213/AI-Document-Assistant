@@ -73,6 +73,11 @@ def build_agent_prompt():
             - Set conference_only=true when the user specifically requests
               conference papers.
             - Do not use search_academic_papers for questions about uploaded PDFs.
+            - A request to find, search, suggest, recommend, or discover a paper
+              is an external academic-search request, even when an old chat
+              message mentions a previously uploaded PDF with a similar name.
+              Use the current uploaded-file list from the system context; never
+              treat a deleted historical filename as currently uploaded.
             - For each external recommendation, include its title, year and venue
               when available, a clickable URL, and one sentence explaining why it
               is relevant to the user's topic.

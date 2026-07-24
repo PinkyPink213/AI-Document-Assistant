@@ -149,7 +149,9 @@ async def search_academic_papers(
     """
     safe_limit = max(1, min(limit, 8))
     try:
-        async with asyncio.timeout(20):
+        # Render cold starts and MCP stdio process startup can take longer than
+        # the provider request itself. The frontend chat timeout is 120 seconds.
+        async with asyncio.timeout(45):
             client = _academic_client()
             tools = await client.get_tools(server_name=ACADEMIC_SERVER_NAME)
             mcp_search = next(
