@@ -12,7 +12,7 @@ from app.services import ConversationService
 from app.services.document_service import DocumentAlreadyExistsError
 from app.core.security import has_valid_pdf_signature
 
-router = APIRouter()
+router = APIRouter(tags=["Conversation"])
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
