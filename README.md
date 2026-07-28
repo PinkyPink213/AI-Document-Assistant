@@ -19,6 +19,14 @@ academic discovery through MCP, and human approval for destructive actions.
 > Built as a portfolio-ready reference for production-oriented RAG and agentic
 > application development.
 
+## 🗺️ Project Overview
+
+The diagram below summarizes the architecture, feature workflows, core data
+model, AI orchestration, and reliability stack of the complete application.
+Click the image to open the full-size version.
+
+[![AI Document Assistant — Project Architecture and Feature Map](img/project-architecture-feature-map.png)](img/project-architecture-feature-map.png)
+
 ## 🖥️ Application Preview
 
 ### Dark theme
@@ -70,6 +78,101 @@ flowchart LR
     DELETE --> HITL{"Approve / Reject"}
     HITL -->|Approve| PG
     HITL -->|Approve| QD
+```
+
+### Backend workflow — explain the system in this order
+
+> **Short project explanation:** The backend is a layered FastAPI application
+> for conversation-scoped document intelligence. PostgreSQL is the source of
+> truth for conversations, documents, chat history, and durable LangGraph
+> checkpoints. Uploaded PDFs are validated, converted into text chunks,
+> embedded, and indexed in Qdrant. Chat requests are routed to document RAG,
+> external academic search through MCP, or a human-approved deletion workflow.
+> The service layer coordinates these stores and keeps the HTTP, business,
+> persistence, and AI concerns separated.
+
+```mermaid
+flowchart TD
+    START["FastAPI startup"] --> LIFE["Lifespan"]
+    LIFE --> INIT["Configure JSON logging, LangSmith, and Qdrant indexes"]
+    LIFE --> CP[("Open PostgreSQL checkpoint pool")]
+    CP --> BUILD["Build LangGraph agent and delete workflow"]
+    BUILD --> READY["API ready"]
+
+    USER["Frontend request"] --> MW["CORS → request ID/logging → rate limit"]
+    MW --> ROUTER["FastAPI router + Pydantic validation"]
+    ROUTER --> DI["Dependency injection"]
+    DI --> SERVICE["Service layer"]
+
+    SERVICE --> DECISION{"Requested feature"}
+
+    DECISION -->|Conversation CRUD| CRUD["ConversationService"]
+    CRUD --> CREPO["Conversation / document / message repositories"]
+    CREPO --> PG[("PostgreSQL source of truth")]
+
+    DECISION -->|Upload PDF| UPLOAD["Validate MIME, size, and PDF signature"]
+    UPLOAD --> EXTRACT["PyPDF extract → chunk 600/100"]
+    EXTRACT --> EMBED["OpenAI embeddings"]
+    EMBED --> QD[("Qdrant vectors + metadata")]
+    QD --> DOCROW["Save document metadata"]
+    DOCROW --> PG
+
+    DECISION -->|Ask uploaded documents| AGENT["AgentService / LangGraph agent"]
+    AGENT --> ACTIVE["Load active document IDs from PostgreSQL"]
+    ACTIVE --> SEARCH["Qdrant filtered search: top 20"]
+    SEARCH --> RERANK["LLM rerank: select 6"]
+    RERANK --> ANSWER["Grounded answer + inline page citations"]
+
+    DECISION -->|Find external papers| MCPWRAP["LangChain tool wrapper"]
+    MCPWRAP --> MCP["MCP stdio: academic-search"]
+    MCP --> PROVIDER["Crossref / Semantic Scholar / OpenAlex / PubMed"]
+    PROVIDER --> LINKS["Validate URLs + clickable paper titles"]
+
+    DECISION -->|Delete PDF| DELETE["Deterministic LangGraph delete workflow"]
+    DELETE --> INTERRUPT["interrupt: Approve / Reject"]
+    INTERRUPT --> CP
+    INTERRUPT -->|Approve| CLEAN["Delete Qdrant vectors + PostgreSQL row"]
+    INTERRUPT -->|Reject| CANCEL["Cancel without side effects"]
+
+    ANSWER --> HISTORY["Persist assistant message"]
+    LINKS --> HISTORY
+    CLEAN --> HISTORY
+    CANCEL --> HISTORY
+    HISTORY --> PG
+    HISTORY --> RESPONSE["Typed API response → Frontend"]
+    CRUD --> RESPONSE
+    DOCROW --> RESPONSE
+```
+
+Follow one request through the same reusable layers:
+
+```text
+HTTP request
+  → Middleware: cross-cutting protection and observability
+  → Router: endpoint and HTTP contract
+  → Pydantic schema: input/output validation
+  → Dependency injection: assemble session, repositories, and services
+  → Service: business rules and workflow orchestration
+  → Repository / AI adapter: PostgreSQL, Qdrant, OpenAI, or MCP
+  → Response schema
+  → Frontend
+```
+
+| Feature | Start here | Main workflow | State changed |
+| --- | --- | --- | --- |
+| Conversation CRUD | `app/api/conversation.py` | Router → `ConversationService` → repositories | PostgreSQL; deletion also cleans Qdrant and checkpoints |
+| PDF upload | `POST /{conversation_id}/documents` | Validate → extract → chunk → embed → index → save metadata | Qdrant + PostgreSQL |
+| Document question | `POST /conversations/{id}/chat` | active SQL IDs → filtered retrieval → rerank → grounded answer | Chat history + agent checkpoint |
+| Paper discovery | `AgentService` academic route | LangChain wrapper → MCP client → academic provider → URL validation | Chat history |
+| PDF deletion | delete intent or delete tool | StateGraph → interrupt → durable checkpoint → Approve/Reject | Qdrant + PostgreSQL + checkpoint |
+| Conversation deletion | `DELETE /conversation/{id}` | clean vectors → agent threads → messages → documents → parent | All conversation-scoped state |
+
+The core design rule is:
+
+```text
+Use deterministic code for actions that must be predictable.
+Use the LLM for ambiguous language and tool selection.
+Use human approval for destructive side effects.
 ```
 
 ### Request routing
