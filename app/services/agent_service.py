@@ -1,82 +1,31 @@
 import logging
-import re
 import time
 
 from langgraph.types import Command
 from langsmith import trace
 
 from app.ai.academic_search import search_academic_papers
+from app.ai.citations import (
+    ACADEMIC_SOURCE_PATTERN,
+    citation_coverage,
+    ensure_academic_citations,
+    ensure_source_citations,
+    reject_deleted_document_citations,
+)
 from app.ai.retriever import list_conversation_filenames
 from app.core.observability import (
     LangSmithMetricsCallback,
     request_id_context,
 )
 from app.repositories import ChatMessageRepository, ConversationRepository
+from app.services.chat_routing import (
+    academic_search_query,
+    extract_delete_filename,
+    is_academic_search_request,
+    requested_paper_limit,
+)
 
 logger = logging.getLogger(__name__)
-
-
-SOURCE_PATTERN = re.compile(
-    r"\[SOURCE \d+:\s*([^,\]]+),\s*page\s*([^\]]+)\]",
-    re.IGNORECASE,
-)
-ACADEMIC_SOURCE_PATTERN = re.compile(
-    r"\[ACADEMIC SOURCE \d+:\s*(.*?)\s*\|\s*(https?://[^\]\s]+)\]",
-    re.IGNORECASE,
-)
-PDF_FILENAME_PATTERN = re.compile(
-    r"""(?:"([^"]+\.pdf)"|'([^']+\.pdf)'|([^\s"'\\/]+\.pdf))""",
-    re.IGNORECASE,
-)
-DELETE_KEYWORDS = ("delete", "remove", "ลบ")
-ACADEMIC_SEARCH_PATTERN = re.compile(
-    r"\b(?:find|search|suggest|recommend|discover)\b.*\b"
-    r"(?:paper|papers|publication|publications|literature|research)\b"
-    r"|\b(?:paper|papers|publication|publications|literature)\b.*\b"
-    r"(?:find|search|suggest|recommend|discover)\b",
-    re.IGNORECASE,
-)
-FINAL_DOCUMENT_CITATION_PATTERN = re.compile(
-    r"\[([^\]\n]+\.pdf),\s*p(?:age|ages)?\.?\s*[^\]]+\]",
-    re.IGNORECASE,
-)
-NO_CURRENT_DOCUMENT_INFORMATION = (
-    "I could not find supporting information in the documents currently "
-    "uploaded to this conversation. Please upload the relevant PDF or ask "
-    "a question about one of the available documents."
-)
-NO_EVIDENCE_PATTERNS = (
-    "do not contain information",
-    "does not contain information",
-    "did not find supporting information",
-    "could not find supporting information",
-    "couldn't find supporting information",
-    "no supporting information was found",
-    "no relevant content was found",
-)
-SOURCES_SECTION_PATTERN = re.compile(
-    r"\n+\*{0,2}sources\*{0,2}\s*\n.*\Z",
-    re.IGNORECASE | re.DOTALL,
-)
-ACADEMIC_FOLLOW_UP_PATTERN = re.compile(
-    r"^\s*(?:yes|yes please|please do|sure|okay|ok|"
-    r"could you (?:find|search)(?: it)? for me\??|"
-    r"(?:find|search) for me\??)\s*$",
-    re.IGNORECASE,
-)
-ACADEMIC_TOPIC_PATTERNS = (
-    re.compile(
-        r"\b(?:find|search|suggest|recommend|discover)\s+"
-        r"(?:for me\s+)?(.+?)\s+(?:papers?|publications?)"
-        r"(?:\s+for me)?(?:\s*[?.]|$)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:papers?|publications?|literature|research)\s+"
-        r"(?:about|on|related to)\s+(.+?)(?:[?.]|$)",
-        re.IGNORECASE,
-    ),
-)
 
 
 class ConversationNotFoundError(LookupError):
@@ -85,74 +34,6 @@ class ConversationNotFoundError(LookupError):
 
 def delete_workflow_thread_id(conversation_id: int) -> str:
     return f"conversation:{conversation_id}:document-deletion"
-
-
-def extract_delete_filename(question: str) -> str | None:
-    normalized = question.casefold()
-    if not any(keyword in normalized for keyword in DELETE_KEYWORDS):
-        return None
-
-    match = PDF_FILENAME_PATTERN.search(question)
-    if not match:
-        return None
-    return next(value.strip() for value in match.groups() if value)
-
-
-def is_academic_search_request(question: str) -> bool:
-    return ACADEMIC_SEARCH_PATTERN.search(question) is not None
-
-
-def academic_search_query(question: str, history: list) -> str | None:
-    """Resolve explicit paper searches and affirmative academic follow-ups."""
-    if is_academic_search_request(question):
-        for pattern in ACADEMIC_TOPIC_PATTERNS:
-            match = pattern.search(question)
-            if match:
-                return match.group(1).strip(" .?")
-        return question.strip()
-
-    if not ACADEMIC_FOLLOW_UP_PATTERN.match(question):
-        return None
-
-    last_assistant = next(
-        (
-            message.content
-            for message in reversed(history)
-            if message.role == "assistant"
-        ),
-        "",
-    )
-    if "external academic" not in last_assistant.casefold():
-        return None
-
-    offered_topic = re.search(
-        r"(?:about|on)\s+([A-Za-z0-9][A-Za-z0-9_. -]*?)(?:[?.]|$)",
-        last_assistant,
-        re.IGNORECASE,
-    )
-    if offered_topic:
-        return offered_topic.group(1).strip(" .?")
-
-    previous_question = next(
-        (
-            message.content
-            for message in reversed(history)
-            if message.role == "user"
-        ),
-        "",
-    )
-    topic = re.sub(
-        r"^\s*(?:what|who)\s+is\s+",
-        "",
-        previous_question,
-        flags=re.IGNORECASE,
-    )
-    return topic.strip(" .?") or None
-
-
-def requested_paper_limit(question: str, default: int = 3) -> int:
-    match = re.search(r"\b([1-8])\s+(?:papers?|publications?)\b", question)
-    return int(match.group(1)) if match else default
 
 
 def format_direct_academic_response(tool_result: str, query: str) -> str:
@@ -189,154 +70,6 @@ def get_pending_interrupt(state) -> dict | None:
     return None
 
 
-def current_turn_messages(messages: list) -> list:
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-        message_type = getattr(message, "type", None)
-        role = getattr(message, "role", None)
-        if message_type == "human" or role == "user":
-            return messages[index:]
-    return messages
-
-
-def has_document_citation(response: str, filename: str, page: str) -> bool:
-    """Recognize individual and grouped page citations for one document."""
-    citation_pattern = re.compile(
-        rf"\[{re.escape(filename.strip())},\s*"
-        rf"(?:p(?:age|ages)?\.?)\s*([^\]]+)\]",
-        re.IGNORECASE,
-    )
-    requested_page = page.strip()
-    if not requested_page.isdigit():
-        return any(
-            requested_page.casefold() in page_expression.casefold()
-            for page_expression in citation_pattern.findall(response)
-        )
-
-    requested_number = int(requested_page)
-    for page_expression in citation_pattern.findall(response):
-        for start, end in re.findall(
-            r"(\d+)(?:\s*[-–]\s*(\d+))?",
-            page_expression,
-        ):
-            range_start = int(start)
-            range_end = int(end or start)
-            if min(range_start, range_end) <= requested_number <= max(
-                range_start,
-                range_end,
-            ):
-                return True
-    return False
-
-
-def ensure_source_citations(response: str, messages: list) -> str:
-    # Document citations must stay inline. Never render a duplicate trailing
-    # Sources section, including one generated directly by the model.
-    _ = messages
-    response = SOURCES_SECTION_PATTERN.sub("", response).rstrip()
-    normalized_response = " ".join(response.casefold().split())
-    if any(pattern in normalized_response for pattern in NO_EVIDENCE_PATTERNS):
-        return response
-
-    return response
-
-
-def reject_deleted_document_citations(
-    response: str,
-    active_filenames: list[str],
-) -> str:
-    """Prevent an answer from relying on a PDF no longer present in PostgreSQL."""
-    active = {filename.strip().casefold() for filename in active_filenames}
-    cited = {
-        filename.strip().casefold()
-        for filename in FINAL_DOCUMENT_CITATION_PATTERN.findall(response)
-    }
-    if cited and not cited.issubset(active):
-        logger.warning(
-            "Rejected answer containing citations to inactive documents",
-            extra={
-                "event": "agent.stale_document_citation",
-                "inactive_filenames": sorted(cited - active),
-            },
-        )
-        return NO_CURRENT_DOCUMENT_INFORMATION
-    return response
-
-
-def ensure_academic_citations(response: str, messages: list) -> str:
-    sources: list[tuple[str, str]] = []
-    for message in current_turn_messages(messages):
-        if getattr(message, "type", None) != "tool":
-            continue
-        content = str(getattr(message, "content", ""))
-        for title, url in ACADEMIC_SOURCE_PATTERN.findall(content):
-            source = (title.strip(), url.strip())
-            if source not in sources:
-                sources.append(source)
-
-    if not sources:
-        return response
-
-    for title, url in sources:
-        title_link = f"[{title}]({url})"
-        if title_link in response:
-            continue
-
-        generic_link_pattern = re.compile(
-            rf"\[(?:open\s+paper|read\s+more)\]\({re.escape(url)}\)",
-            re.IGNORECASE,
-        )
-        response = generic_link_pattern.sub("", response)
-
-        quoted_title_pattern = re.compile(
-            rf'["“”]?{re.escape(title)}["“”]?',
-            re.IGNORECASE,
-        )
-        if quoted_title_pattern.search(response):
-            response = quoted_title_pattern.sub(title_link, response, count=1)
-
-    missing_sources = [
-        (title, url) for title, url in sources if url not in response
-    ]
-    if not missing_sources:
-        return response
-
-    source_list = "\n".join(
-        f"- [{title}]({url})" for title, url in missing_sources
-    )
-    return f"{response.rstrip()}\n\n**Paper links**\n{source_list}"
-
-
-def citation_coverage(response: str, messages: list) -> dict[str, float | int]:
-    """Measure how many retrieved sources are represented in the final answer."""
-    expected: set[str] = set()
-    cited: set[str] = set()
-    for message in current_turn_messages(messages):
-        if getattr(message, "type", None) != "tool":
-            continue
-        content = str(getattr(message, "content", ""))
-        for filename, page in SOURCE_PATTERN.findall(content):
-            key = f"document:{filename.strip()}:{page.strip()}"
-            expected.add(key)
-            if has_document_citation(response, filename, page):
-                cited.add(key)
-        for title, url in ACADEMIC_SOURCE_PATTERN.findall(content):
-            key = f"academic:{title.strip()}:{url.strip()}"
-            expected.add(key)
-            if url.strip() in response:
-                cited.add(key)
-
-    expected_count = len(expected)
-    cited_count = len(cited)
-    return {
-        "citation_source_count": expected_count,
-        "citation_count": cited_count,
-        "citation_coverage": (
-            cited_count / expected_count if expected_count else 1.0
-        ),
-    }
-
-
 class AgentService:
     """
     Service responsible for interacting with the LangGraph Agent.
@@ -364,104 +97,106 @@ class AgentService:
         self.ensure_conversation_exists(conversation_id)
         return self.message_repository.list_by_conversation(conversation_id)
 
-    async def chat(
-        self,
+    @staticmethod
+    def _build_agent_config(
         conversation_id: int,
-        question: str, 
-    ):
-        """
-        Send a user message to the agent.
-        """
-        self.ensure_conversation_exists(conversation_id)
-        thread_id = str(conversation_id)
-        callback = LangSmithMetricsCallback()
-        trace_metadata = {
-            "request_id": request_id_context.get(),
-            "conversation_id": str(conversation_id),
-            "operation": "chat",
-        }
-        config = {
+        callback: LangSmithMetricsCallback,
+        trace_metadata: dict[str, str],
+    ) -> dict:
+        return {
             "configurable": {
-                "thread_id": thread_id,
+                "thread_id": str(conversation_id),
             },
             "callbacks": [callback],
             "tags": ["document-assistant", "chat"],
             "metadata": trace_metadata,
         }
-        delete_config = {
+
+    @staticmethod
+    def _build_delete_config(conversation_id: int) -> dict:
+        return {
             "configurable": {
                 "thread_id": delete_workflow_thread_id(conversation_id),
             }
         }
-        logger.info("User question: %s", question)
+
+    async def _get_pending_approval(
+        self,
+        agent_config: dict,
+        delete_config: dict,
+    ) -> tuple[dict | None, object]:
+        """Return an existing approval before accepting another user action."""
         delete_state = await self.delete_document_workflow.aget_state(
             delete_config
         )
         pending_delete = get_pending_interrupt(delete_state)
         if pending_delete:
-            return {
-                "response": None,
-                "interrupt": pending_delete,
+            return pending_delete, None
+
+        agent_state = await self.agent.aget_state(agent_config)
+        pending_agent_action = get_pending_interrupt(agent_state)
+        return pending_agent_action, agent_state
+
+    async def _start_delete_workflow(
+        self,
+        conversation_id: int,
+        filename: str,
+        delete_config: dict,
+    ) -> dict:
+        result = await self.delete_document_workflow.ainvoke(
+            {
+                "conversation_id": conversation_id,
+                "filename": filename,
+            },
+            config=delete_config,
+        )
+        interrupt_value = result["__interrupt__"][0].value
+        logger.info(
+            "Document deletion requires approval: conversation=%s filename=%s",
+            conversation_id,
+            filename,
+        )
+        return {
+            "response": None,
+            "interrupt": interrupt_value,
+        }
+
+    async def _run_direct_academic_search(
+        self,
+        conversation_id: int,
+        question: str,
+        external_query: str,
+    ) -> dict:
+        tool_result = await search_academic_papers.ainvoke(
+            {
+                "query": external_query,
+                "conference_only": "conference" in question.casefold(),
+                "limit": requested_paper_limit(question),
             }
+        )
+        response = format_direct_academic_response(
+            str(tool_result),
+            external_query,
+        )
+        self.message_repository.create(
+            conversation_id,
+            "assistant",
+            response,
+        )
+        return {"response": response}
 
-        state = await self.agent.aget_state(config)
-        pending_interrupt = get_pending_interrupt(state)
-        if pending_interrupt:
-            logger.info(
-                "Thread %s is awaiting a human decision; returning its interrupt.",
-                thread_id,
-            )
-            return {
-                "response": None,
-                "interrupt": pending_interrupt,
-            }
-
-        persisted_history = self.message_repository.list_by_conversation(conversation_id)
-        self.message_repository.create(conversation_id, "user", question)
-
-        filename = extract_delete_filename(question)
-        if filename:
-            result = await self.delete_document_workflow.ainvoke(
-                {
-                    "conversation_id": conversation_id,
-                    "filename": filename,
-                },
-                config=delete_config,
-            )
-            interrupt_value = result["__interrupt__"][0].value
-            logger.info(
-                "Document deletion requires approval: conversation=%s filename=%s",
-                conversation_id,
-                filename,
-            )
-            return {
-                "response": None,
-                "interrupt": interrupt_value,
-            }
-
-        external_query = academic_search_query(question, persisted_history)
-        if external_query:
-            tool_result = await search_academic_papers.ainvoke(
-                {
-                    "query": external_query,
-                    "conference_only": "conference" in question.casefold(),
-                    "limit": requested_paper_limit(question),
-                }
-            )
-            response = format_direct_academic_response(
-                str(tool_result),
-                external_query,
-            )
-            self.message_repository.create(
-                conversation_id,
-                "assistant",
-                response,
-            )
-            return {
-                "response": response,
-            }
-
-        checkpoint_messages = state.values.get("messages", {}) if state.values else {}
+    @staticmethod
+    def _build_input_messages(
+        conversation_id: int,
+        question: str,
+        persisted_history: list,
+        agent_state,
+    ) -> list[dict[str, str]]:
+        checkpoint_messages = (
+            agent_state.values.get("messages", {})
+            if agent_state and agent_state.values
+            else {}
+        )
         active_filenames = list_conversation_filenames(conversation_id)
         active_files_text = (
             ", ".join(active_filenames) if active_filenames else "none"
@@ -483,26 +218,38 @@ class AgentService:
                 f"{academic_instruction}"
             ),
         }
-        input_messages = [context_message, {"role": "user", "content": question}]
+        current_question = {"role": "user", "content": question}
+
+        # PostgreSQL restores visible chat history when a graph thread has no
+        # checkpoint messages yet, without duplicating an existing graph history.
         if not checkpoint_messages and persisted_history:
-            input_messages = [context_message] + [
+            history_messages = [
                 {"role": message.role, "content": message.content}
                 for message in persisted_history
-            ] + [{"role": "user", "content": question}]
+            ]
+            return [context_message, *history_messages, current_question]
 
+        return [context_message, current_question]
+
+    async def _run_agent(
+        self,
+        conversation_id: int,
+        input_messages: list[dict[str, str]],
+        agent_config: dict,
+        callback: LangSmithMetricsCallback,
+        trace_metadata: dict[str, str],
+    ) -> dict:
         started = time.perf_counter()
         with trace(
             "chat_request",
             run_type="chain",
-            inputs={"question": question},
+            inputs={"question": input_messages[-1]["content"]},
             tags=["document-assistant", "chat"],
             metadata=trace_metadata,
         ) as run:
             result = await self.agent.ainvoke(
-                {
-                    "messages": input_messages,
-                },
-                config=config,
+                {"messages": input_messages},
+                config=agent_config,
                 version="v2",
             )
 
@@ -510,6 +257,7 @@ class AgentService:
                 run.add_metadata({"human_approval_required": True})
                 logger.info("Human approval required.")
                 return {
+                    "response": None,
                     "interrupt": result.interrupts[0].value,
                 }
 
@@ -541,8 +289,12 @@ class AgentService:
                 }
             )
             run.end(outputs={"response": response})
-        self.message_repository.create(conversation_id, "assistant", response)
 
+        self.message_repository.create(
+            conversation_id,
+            "assistant",
+            response,
+        )
         logger.info(
             "Agent response generated",
             extra={
@@ -559,10 +311,82 @@ class AgentService:
                 **coverage,
             },
         )
+        return {"response": response}
 
-        return {
-            "response": response,
+    async def chat(
+        self,
+        conversation_id: int,
+        question: str,
+    ) -> dict:
+        """Route a user message through the appropriate chat workflow."""
+        self.ensure_conversation_exists(conversation_id)
+
+        callback = LangSmithMetricsCallback()
+        trace_metadata = {
+            "request_id": request_id_context.get(),
+            "conversation_id": str(conversation_id),
+            "operation": "chat",
         }
+        agent_config = self._build_agent_config(
+            conversation_id,
+            callback,
+            trace_metadata,
+        )
+        delete_config = self._build_delete_config(conversation_id)
+        logger.info("User question: %s", question)
+
+        pending_approval, agent_state = await self._get_pending_approval(
+            agent_config,
+            delete_config,
+        )
+        if pending_approval:
+            logger.info(
+                "Conversation %s is awaiting a human decision.",
+                conversation_id,
+            )
+            return {
+                "response": None,
+                "interrupt": pending_approval,
+            }
+
+        persisted_history = self.message_repository.list_by_conversation(
+            conversation_id
+        )
+        self.message_repository.create(
+            conversation_id,
+            "user",
+            question,
+        )
+
+        filename = extract_delete_filename(question)
+        if filename:
+            return await self._start_delete_workflow(
+                conversation_id,
+                filename,
+                delete_config,
+            )
+
+        external_query = academic_search_query(question, persisted_history)
+        if external_query:
+            return await self._run_direct_academic_search(
+                conversation_id,
+                question,
+                external_query,
+            )
+
+        input_messages = self._build_input_messages(
+            conversation_id,
+            question,
+            persisted_history,
+            agent_state,
+        )
+        return await self._run_agent(
+            conversation_id,
+            input_messages,
+            agent_config,
+            callback,
+            trace_metadata,
+        )
 
     async def resume(
         self,

@@ -8,11 +8,9 @@ from app.ai.academic_search import (
     format_academic_results,
     search_academic_papers,
 )
-from app.services.agent_service import (
-    academic_search_query,
-    ensure_academic_citations,
-    format_direct_academic_response,
-)
+from app.ai.citations import ensure_academic_citations
+from app.services.agent_service import format_direct_academic_response
+from app.services.chat_routing import academic_search_query
 
 
 PAPER = {

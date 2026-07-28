@@ -4,7 +4,7 @@ from langgraph.types import Command
 
 from app.ai import delete_workflow
 from app.ai.delete_workflow import build_delete_document_workflow
-from app.services.agent_service import extract_delete_filename
+from app.services.chat_routing import extract_delete_filename
 
 
 def test_extracts_pdf_from_explicit_delete_request():

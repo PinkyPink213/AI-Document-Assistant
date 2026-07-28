@@ -5,17 +5,19 @@ from app.ai.retriever import (
     format_cited_context,
     resolve_mentioned_filename,
 )
-from app.services.agent_service import (
-    AgentService,
-    ConversationNotFoundError,
+from app.ai.citations import (
     citation_coverage,
     ensure_academic_citations,
     ensure_source_citations,
-    get_pending_interrupt,
     has_document_citation,
-    is_academic_search_request,
     reject_deleted_document_citations,
 )
+from app.services.agent_service import (
+    AgentService,
+    ConversationNotFoundError,
+    get_pending_interrupt,
+)
+from app.services.chat_routing import is_academic_search_request
 import pytest
 
 
